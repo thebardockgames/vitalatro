@@ -1,0 +1,9 @@
+# Original game data: copyrighted, never committed. Assets are converted from it at build time.
+/Balatro Original/
+/build*/
+/out/
+*.vpk
+*.velf
+*.self
+*.gxp
+__pycache__/

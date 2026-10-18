@@ -1,0 +1,5 @@
+-xc++
+-std=c++17
+-Isrc
+-Ithird_party
+-DVL_PC=1
