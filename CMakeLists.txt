@@ -27,7 +27,7 @@ if(VL_TARGET STREQUAL "vita")
   set(VITA_TITLEID  "VLTR00001")
   set(VITA_VERSION  "00.01")
 
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -mcpu=cortex-a9 -mfpu=neon -ffast-math -fno-exceptions -fno-rtti -Wall")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -mcpu=cortex-a9 -mfpu=neon -fno-exceptions -Wall")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -mcpu=cortex-a9 -mfpu=neon")
 
   add_executable(vitalatro ${COMMON_SRC}

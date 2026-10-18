@@ -76,17 +76,31 @@ def build_vita_shaders(src, out):
             sys.exit(f'{cg.name}: {r.stdout}{r.stderr}')
 
 
+def wsl_path(p):
+    p = str(Path(p).resolve())
+    return '/mnt/' + p[0].lower() + p[2:].replace('\\', '/')
+
+
+def run_wsl(args):
+    r = subprocess.run(['wsl', '-d', 'Ubuntu', '--'] + args, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f'{args[0]} failed:\n{r.stdout}{r.stderr}')
+
+
 def main():
     game, out, target = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
     res = game / 'resources'
     copy_tree(res / 'textures' / '1x', out / 'textures' / '1x', '**/*.png')
-    copy_tree(res / 'fonts', out / 'fonts', '*.ttf')
     copy_tree(res / 'sounds', out / 'sounds', '*.ogg')
     shaders = gather_shaders(res / 'shaders', out.parent / ('shaders_src_' + target))
     if target == 'vita':
         build_vita_shaders(shaders, out / 'shaders')
     else:
         copy_tree(shaders, out / 'shaders', '*.fs')
+    # game data tables (prototypes, localization...) and fonts rasterized like LOVE does
+    (out / 'data').mkdir(parents=True, exist_ok=True)
+    run_wsl(['luajit', wsl_path(HERE / 'extract_data.lua'), wsl_path(game), wsl_path(out / 'data')])
+    run_wsl(['python3', wsl_path(HERE / 'bake_fonts.py'), wsl_path(game), wsl_path(out / 'data'), wsl_path(out / 'fonts')])
     print(f'assets ready in {out}')
 
 

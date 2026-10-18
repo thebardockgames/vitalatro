@@ -53,6 +53,7 @@ struct TextureDesc {
     Filter filter = Filter::Linear;
     bool repeat = false;          // wrap mode: repeat instead of clamp
     bool half_float = false;      // rgba holds 4 IEEE halfs per texel (RGBA16F, no mipmaps)
+    bool alpha8 = false;          // rgba holds 1 byte per texel: sampled as (1, 1, 1, a)
     int gxm_layout = 0;           // Vita layout diagnostics (see backend_gxm.cpp), 0 = default
     // When >1, the data is a 1x source of an atlas that is a nearest-neighbour upscale by this
     // factor (Balatro's 2x atlases are exactly that); it is expanded at load time.
@@ -88,6 +89,7 @@ void origin();
 void translate(float x, float y);
 void rotate(float r);
 void scale(float sx, float sy);
+void transform_by(const Affine &m);  // current = current * m
 inline void scale(float s) { scale(s, s); }
 const Affine &transform();
 

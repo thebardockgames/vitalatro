@@ -348,6 +348,27 @@ int backend_screen_height() { return kH; }
 
 void backend_create_texture(Texture *t, const TextureDesc &d) {
     GxmTex *g = new GxmTex();
+    if (d.alpha8) {
+        // 8-bit alpha, single level, explicit stride; sampled as (1, 1, 1, a)
+        int stride = ALIGN(d.width, 16);
+        uint8_t *mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)stride * d.height,
+                                            SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem)
+            mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, (size_t)stride * d.height,
+                                       SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem) platform::fatal("out of GPU memory (%dx%d a8)", d.width, d.height);
+        for (int y = 0; y < d.height; y++)
+            std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width, (size_t)d.width);
+        sceGxmTextureInitLinearStrided(&g->tex, mem, SCE_GXM_TEXTURE_FORMAT_U8_111R, d.width, d.height, stride);
+        SceGxmTextureFilter f = d.filter == Filter::Linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT;
+        sceGxmTextureSetMinFilter(&g->tex, f);
+        sceGxmTextureSetMagFilter(&g->tex, f);
+        sceGxmTextureSetUAddrMode(&g->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+        sceGxmTextureSetVAddrMode(&g->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+        t->mip_levels = 1;
+        t->impl = g;
+        return;
+    }
     if (d.half_float) {
         // RGBA16F, single level, explicit stride
         int stride = ALIGN(d.width, kTexRowAlign) * 8;

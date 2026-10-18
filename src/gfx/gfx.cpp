@@ -181,7 +181,7 @@ Texture *create_texture(const TextureDesc &desc) {
     // 1x and are expanded here; the GPU then filters a real 2x image exactly like LOVE does.
     std::vector<uint8_t> up;
     TextureDesc d = desc;
-    if (d.virtual_scale > 1) {
+    if (d.virtual_scale > 1 && !d.alpha8 && !d.half_float) {
         int s = d.virtual_scale, w = d.width * s, h = d.height * s;
         up.resize((size_t)w * h * 4);
         const uint32_t *src = (const uint32_t *)d.rgba;
@@ -279,6 +279,7 @@ void origin() { top() = Affine{}; }
 void translate(float x, float y) { top().translate(x, y); }
 void rotate(float r) { top().rotate(r); }
 void scale(float sx, float sy) { top().scale(sx, sy); }
+void transform_by(const Affine &m) { top() = top() * m; }
 const Affine &transform() { return top(); }
 
 void set_color(Color c) { S.color = c; }

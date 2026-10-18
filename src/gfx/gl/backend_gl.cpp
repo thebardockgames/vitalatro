@@ -225,7 +225,11 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     glGenTextures(1, &gt->id);
     glBindTexture(GL_TEXTURE_2D, gt->id);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    if (d.half_float)
+    if (d.alpha8) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, d.width, d.height, 0, GL_RED, GL_UNSIGNED_BYTE, d.rgba);
+        const GLint swz[4] = {GL_ONE, GL_ONE, GL_ONE, GL_RED};
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swz);
+    } else if (d.half_float)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, d.width, d.height, 0, GL_RGBA, GL_HALF_FLOAT, d.rgba);
     else
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, d.width, d.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, d.rgba);
