@@ -17,7 +17,7 @@ enum class ShaderId : uint8_t {
     Background, CRT, Dissolve, Foil, Holo, Polychrome, Negative, NegativeShine,
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
     // Vitalatro's own programs (shaders/internal)
-    BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged,
+    BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged, BgField8, BgColor8,
     Count
 };
 
@@ -53,6 +53,7 @@ struct TextureDesc {
     Filter filter = Filter::Linear;
     bool repeat = false;          // wrap mode: repeat instead of clamp
     bool half_float = false;      // rgba holds 4 IEEE halfs per texel (RGBA16F, no mipmaps)
+    int gxm_layout = 0;           // Vita layout diagnostics (see backend_gxm.cpp), 0 = default
     // When >1, the data is a 1x source of an atlas that is a nearest-neighbour upscale by this
     // factor (Balatro's 2x atlases are exactly that); it is expanded at load time.
     int virtual_scale = 1;

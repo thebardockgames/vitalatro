@@ -522,6 +522,119 @@ void render(const Config &cfg, double t) {
     set_aux_texture(2, nullptr);
 }
 
+// ------------------------------------------------------------------ diagnostics
+// Page 0: the same cards through five texture memory layouts (A-E), at 1:1 (mip level 0 only) and
+// at the in-game scale (mip blend). Pages 1-3: background pipelines. Page 4: polar texture.
+struct DiagTex {
+    Texture *tex;
+    float lw, lh;  // logical size used for texcoords (padded for E)
+};
+DiagTex diag_cards[5][2];  // [variant][0 = Enhancers, 1 = 8BitDeck]
+Canvas *bg_field8;
+int diag_page = 0;
+constexpr int kDiagPages = 5;
+const char *kDiagNames[kDiagPages] = {"texture layouts A-E", "background: original shader",
+                                      "background: k=2 RGBA16F field (polar strided)",
+                                      "background: k=2 RGBA8 field, manual bilinear", "polar texture k=2 (x8)"};
+
+DiagTex make_diag_tex(const char *path, int variant) {
+    std::string data;
+    if (!platform::read_file(path, data)) platform::fatal("missing %s", path);
+    int w, h, n;
+    unsigned char *px = stbi_load_from_memory((const unsigned char *)data.data(), (int)data.size(), &w, &h, &n, 4);
+    // nearest 2x like the game's 2x atlases
+    int w2 = w * 2, h2 = h * 2;
+    int pw = w2, ph = h2;
+    if (variant == 4) {  // E: pad to powers of two
+        pw = 1; while (pw < w2) pw *= 2;
+        ph = 1; while (ph < h2) ph *= 2;
+    }
+    std::vector<uint32_t> img((size_t)pw * ph, 0);
+    for (int y = 0; y < h2; y++)
+        for (int x = 0; x < w2; x++) img[(size_t)y * pw + x] = ((const uint32_t *)px)[(size_t)(y / 2) * w + x / 2];
+    stbi_image_free(px);
+    TextureDesc d{pw, ph, (const uint8_t *)img.data()};
+    d.dpi_scale = 2;
+    // A: InitLinear rows/8 no mips, B: strided no mips, C: rows/8 mips, D: rows/16 mips, E: POT rows/8 mips
+    const int layouts[5] = {1, 3, 1, 2, 1};
+    const bool mips[5] = {false, false, true, true, true};
+    d.gxm_layout = layouts[variant];
+    d.mipmaps = mips[variant];
+    DiagTex t{create_texture(d), pw / 2.0f, ph / 2.0f};
+    return t;
+}
+
+void diag_card(const DiagTex &t, float sx, float sy, float x, float y, float scale) {
+    // a 71x95 logical sprite drawn at 'scale' screen pixels per 2x texel
+    Quad q{sx * 71, sy * 95, 71, 95, t.lw, t.lh};
+    draw(t.tex, q, x, y, 0, 2 * scale, 2 * scale);
+}
+
+void diag_render(double t) {
+    set_canvas(canvas);
+    clear({0.25f, 0.25f, 0.3f, 1});
+    char label[128];
+    if (diag_page == 0) {
+        for (int v = 0; v < 5; v++) {
+            float x0 = 8 + v * 190.0f;
+            diag_card(diag_cards[v][0], 1, 0, x0, 26, 0.5f);       // Enhancers c_base at 1:1 (half size shown)
+            diag_card(diag_cards[v][1], 0, 0, x0 + 76, 26, 0.5f);  // 2 of hearts
+            diag_card(diag_cards[v][0], 1, 0, x0, 130, 1.0f);
+            diag_card(diag_cards[v][1], 4, 2, x0, 330, 0.61f);
+            diag_card(diag_cards[v][0], 3, 1, x0 + 90, 330, 0.61f);
+            diag_card(diag_cards[v][1], 12, 3, x0 + 45, 440, 0.45f);
+        }
+    } else if (diag_page == 1) {
+        background_original(t);
+    } else if (diag_page == 2) {
+        background_blocks(t, 2, 1, false);
+    } else if (diag_page == 3) {
+        // RGBA8 field + manual bilinear colour pass + nearest expansion
+        float fw, fh;
+        texture_dimensions(canvas_texture(bg_field8), fw, fh);
+        set_canvas(bg_field8);
+        send(ShaderId::BgField8, "time", (float)t);
+        send(ShaderId::BgField8, "spin_time", 0.0f);
+        send(ShaderId::BgField8, "spin_amount", 0.0f);
+        set_shader(ShaderId::BgField8);
+        draw(bg_polar[2], 0, 0);
+        set_canvas(bg_color);
+        send(ShaderId::BgColor8, "k", 2.0f);
+        send(ShaderId::BgColor8, "contrast", 1.0f);
+        send(ShaderId::BgColor8, "spin_amount", 0.0f);
+        send(ShaderId::BgColor8, "field_size", fw, fh);
+        send(ShaderId::BgColor8, "colour_1", kBg1, 4);
+        send(ShaderId::BgColor8, "colour_2", kBg2, 4);
+        send(ShaderId::BgColor8, "colour_3", kBg3, 4);
+        set_shader(ShaderId::BgColor8);
+        draw(canvas_texture(bg_field8), 0, 0, 0, nbx / fw, nby / fh);
+        set_canvas(canvas);
+        set_shader(ShaderId::Default);
+        draw(canvas_texture(bg_color), 0, 0, 0, pixel_size, pixel_size);
+    } else {
+        draw(bg_polar[2], 0, 20, 0, 3, 3);
+    }
+    set_shader(ShaderId::Default);
+    set_canvas(nullptr);
+    clear({0, 0, 0, 1});
+    draw(canvas, 0, 0);
+    set_color({0, 0, 0, 0.7f});
+    rectangle_fill(0, 0, 960, 22);
+    set_color({1, 1, 1, 1});
+    std::snprintf(label, sizeof label, "DIAG %d/%d: %s   (L/R page, START = benchmark)", diag_page + 1, kDiagPages,
+                  kDiagNames[diag_page]);
+    text(6, 0, label);
+    if (diag_page == 0)
+        for (int v = 0; v < 5; v++) {
+            const char *names[5] = {"A lin8 nomip", "B strided", "C lin8 mip", "D lin16 mip", "E POT mip"};
+            set_color({0, 0, 0, 0.7f});
+            rectangle_fill(8 + v * 190.0f, 520, 180, 22);
+            set_color({1, 1, 0.4f, 1});
+            text(10 + v * 190.0f, 520, names[v]);
+        }
+    set_color({1, 1, 1, 1});
+}
+
 }  // namespace
 
 void init() {
@@ -544,6 +657,11 @@ void init() {
     }
     build_crt_luts();
     build_crt_map();
+    bg_field8 = create_canvas((nbx + 1) / 2 + 3, (nby + 1) / 2 + 3, CanvasFormat::RGBA8, Filter::Nearest);
+    for (int v = 0; v < 5; v++) {
+        diag_cards[v][0] = make_diag_tex("textures/1x/Enhancers.png", v);
+        diag_cards[v][1] = make_diag_tex("textures/1x/8BitDeck.png", v);
+    }
     load_font();
 
     const float cw = 2.4f * 35 / 41, ch = 2.4f * 47 / 41;
@@ -582,11 +700,23 @@ void render_config(int i, double t) {
     end_frame();
 }
 
+bool diag_mode = true;
+
 void frame(uint32_t pressed) {
     double now = time_now();
     double dt_ms = (now - last_t) * 1000.0;
     last_t = now;
     double t = now - t0;
+
+    if (diag_mode) {
+        if (pressed & platform::BTN_R) diag_page = (diag_page + 1) % kDiagPages;
+        if (pressed & platform::BTN_L) diag_page = (diag_page + kDiagPages - 1) % kDiagPages;
+        if (pressed & platform::BTN_START) diag_mode = false;
+        begin_frame();
+        diag_render(t);
+        end_frame();
+        return;
+    }
 
     // after the benchmark: L/R cycles through the configurations to compare them by eye
     if (done) {

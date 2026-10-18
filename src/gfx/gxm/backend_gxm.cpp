@@ -368,8 +368,34 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
         t->impl = g;
         return;
     }
-    // Linear layout: every level's rows are aligned to kTexRowAlign texels, levels packed back
-    // to back. 16 matches the layout the hardware read on device (8 garbled NPOT atlases).
+    // Single-level textures: explicit stride, no layout rule involved.
+    // Diagnostics (d.gxm_layout): 1 = InitLinear rows aligned to 8, 2 = rows aligned to 16
+    // (both mipmapped when d.mipmaps), 3 = strided single level.
+    int row_align = d.gxm_layout == 1 ? 8 : 16;
+    if ((!d.mipmaps && d.gxm_layout == 0) || d.gxm_layout == 3) {
+        int stride = ALIGN(d.width, 16) * 4;
+        uint8_t *mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)stride * d.height,
+                                            SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem)
+            mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, (size_t)stride * d.height,
+                                       SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem) platform::fatal("out of GPU memory (%dx%d)", d.width, d.height);
+        for (int y = 0; y < d.height; y++)
+            std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width * 4, (size_t)d.width * 4);
+        sceGxmTextureInitLinearStrided(&g->tex, mem, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, d.width, d.height,
+                                       stride);
+        SceGxmTextureFilter f = d.filter == Filter::Linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT;
+        sceGxmTextureSetMinFilter(&g->tex, f);
+        sceGxmTextureSetMagFilter(&g->tex, f);
+        SceGxmTextureAddrMode wrap = d.repeat ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP;
+        sceGxmTextureSetUAddrMode(&g->tex, wrap);
+        sceGxmTextureSetVAddrMode(&g->tex, wrap);
+        t->mip_levels = 1;
+        t->impl = g;
+        return;
+    }
+    // Mipmapped linear layout: rows aligned to row_align texels, levels packed back to back.
+    const int kTexRowAlign = row_align;
     int levels = 1;
     if (d.mipmaps) {
         int w = d.width, h = d.height;
