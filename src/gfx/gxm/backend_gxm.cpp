@@ -107,7 +107,7 @@ struct ProgramParams {
     const SceGxmProgramParameter *u_vert[16];  // per uniform desc, vertex stage
     const SceGxmProgramParameter *u_frag[16];  // per uniform desc, fragment stage
     const SceGxmProgramParameter *proj, *screen_v, *screen_f, *clear;
-    int tex_unit, aux_unit[2];  // sampler resource indices, -1 if unused
+    int tex_unit, aux_unit[kAuxSlots];  // sampler resource indices, -1 if unused
 };
 
 struct Program {
@@ -227,6 +227,7 @@ void build_program(Program &P, const char *vname, const char *fname, ShaderId id
     P.p.tex_unit = sampler("MainTex");
     P.p.aux_unit[0] = sampler("vl_Aux1");
     P.p.aux_unit[1] = sampler("vl_Aux2");
+    P.p.aux_unit[2] = sampler("vl_Aux3");
     if (id != ShaderId::Count) {
         const ShaderInfo &si = shader_info(id);
         for (int i = 0; i < si.uniform_count && i < 16; i++) {
@@ -347,6 +348,26 @@ int backend_screen_height() { return kH; }
 
 void backend_create_texture(Texture *t, const TextureDesc &d) {
     GxmTex *g = new GxmTex();
+    if (d.half_float) {
+        // RGBA16F, single level, explicit stride
+        int stride = ALIGN(d.width, kTexRowAlign) * 8;
+        uint8_t *mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)stride * d.height,
+                                            SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem) platform::fatal("out of GPU memory (%dx%d f16)", d.width, d.height);
+        for (int y = 0; y < d.height; y++)
+            std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width * 8, (size_t)d.width * 8);
+        sceGxmTextureInitLinearStrided(&g->tex, mem, SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_ABGR, d.width, d.height,
+                                       stride);
+        SceGxmTextureFilter f = d.filter == Filter::Linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT;
+        sceGxmTextureSetMinFilter(&g->tex, f);
+        sceGxmTextureSetMagFilter(&g->tex, f);
+        SceGxmTextureAddrMode wrap = d.repeat ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP;
+        sceGxmTextureSetUAddrMode(&g->tex, wrap);
+        sceGxmTextureSetVAddrMode(&g->tex, wrap);
+        t->mip_levels = 1;
+        t->impl = g;
+        return;
+    }
     // Linear layout: every level's rows are aligned to kTexRowAlign texels, levels packed back
     // to back. 16 matches the layout the hardware read on device (8 garbled NPOT atlases).
     int levels = 1;
@@ -554,7 +575,7 @@ void backend_submit(const FrameData &f) {
             sceGxmSetFragmentTexture(g_ctx, P.p.tex_unit, &((GxmTex *)c.texture->impl)->tex);
             cur_tex = c.texture;
         }
-        for (int a = 0; a < 2; a++)
+        for (int a = 0; a < kAuxSlots; a++)
             if (c.aux[a] && P.p.aux_unit[a] >= 0) {
                 sceGxmSetFragmentTexture(g_ctx, P.p.aux_unit[a], &((GxmTex *)c.aux[a]->impl)->tex);
                 cur_tex = nullptr;  // unit numbering differs per program

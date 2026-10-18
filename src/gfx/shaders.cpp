@@ -43,6 +43,9 @@ const UniformDesc u_bg_field[] = {{"time", 0, 1}, {"spin_time", 1, 1}, {"spin_am
 const UniformDesc u_bg_color[] = {{"contrast", 1, 1}, {"spin_amount", 2, 1}, {"colour_1", 8, 4},
                                    {"colour_2", 12, 4}, {"colour_3", 16, 4}};
 const UniformDesc u_vl_polychrome[] = {CARD_LAYOUT("polychrome"), {"vl_poly_a", 24, 4}, {"vl_poly_b", 28, 4}};
+const UniformDesc u_bg_merged[] = {{"pixel_size", 0, 1}, {"k", 1, 1}, {"field_size", 2, 2},
+                                    {"contrast", 4, 1}, {"spin_amount", 5, 1}, {"colour_1", 8, 4},
+                                    {"colour_2", 12, 4}, {"colour_3", 16, 4}};
 const UniformDesc u_skew[] = {{"hovering", 0, 1}, {"screen_scale", 1, 1}, {"mouse_screen_pos", 2, 2}};
 
 #define N(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
@@ -71,6 +74,8 @@ const ShaderInfo kShaders[(int)ShaderId::Count] = {
     {"vl_bg_color", u_bg_color, N(u_bg_color), 20, false},
     {"vl_crt_fast", u_crt, N(u_crt), 16, true, false, false},  // CRT.fs uniforms, no blending
     {"vl_polychrome", u_vl_polychrome, N(u_vl_polychrome), 32, true},
+    {"vl_crt_map", u_crt, N(u_crt), 16, true, false, false},  // CRT.fs uniforms, no blending
+    {"vl_bg_merged", u_bg_merged, N(u_bg_merged), 20, false},
 };
 #undef N
 

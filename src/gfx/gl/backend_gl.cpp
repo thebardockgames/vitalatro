@@ -133,6 +133,7 @@ void build_program(Program &P, ShaderId id, const std::string &body, const char 
     glUniform1i(glGetUniformLocation(P.prog, "MainTex"), 0);
     glUniform1i(glGetUniformLocation(P.prog, "vl_Aux1"), 1);
     glUniform1i(glGetUniformLocation(P.prog, "vl_Aux2"), 2);
+    glUniform1i(glGetUniformLocation(P.prog, "vl_Aux3"), 3);
     if (id != ShaderId::Count) {
         const ShaderInfo &si = shader_info(id);
         for (int i = 0; i < si.uniform_count; i++)
@@ -224,8 +225,10 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     glGenTextures(1, &gt->id);
     glBindTexture(GL_TEXTURE_2D, gt->id);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, d.width, d.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 d.rgba);
+    if (d.half_float)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, d.width, d.height, 0, GL_RGBA, GL_HALF_FLOAT, d.rgba);
+    else
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, d.width, d.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, d.rgba);
     GLenum mag = d.filter == Filter::Linear ? GL_LINEAR : GL_NEAREST;
     GLenum min = mag;
     if (d.mipmaps) {
@@ -315,7 +318,7 @@ void backend_submit(const FrameData &f) {
         const Texture *t = c.texture;
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, ((GLTex *)t->impl)->id);
-        for (int a = 0; a < 2; a++)
+        for (int a = 0; a < kAuxSlots; a++)
             if (c.aux[a]) {
                 glActiveTexture(GL_TEXTURE1 + a);
                 glBindTexture(GL_TEXTURE_2D, ((GLTex *)c.aux[a]->impl)->id);

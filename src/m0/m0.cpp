@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -262,20 +263,43 @@ void background_original(double t) {
 // Three passes: paint field every k blocks (RGBA16F) -> per-block colour, sampling the field with
 // hardware bilinear filtering -> expand blocks to pixels with nearest filtering. No pass does a
 // dependent texture read.
-void background_blocks(double t, int k, int field_every) {
+void background_blocks(double t, int k, int field_every, bool merged) {
     Canvas *field = bg_field[k];
     Texture *ft = canvas_texture(field);
     float fw, fh;
     texture_dimensions(ft, fw, fh);
 
-    if (frame_no % field_every == 0) {
-        set_canvas(field);
-        send(ShaderId::BgField, "time", (float)t);
-        send(ShaderId::BgField, "spin_time", 0.0f);
-        send(ShaderId::BgField, "spin_amount", 0.0f);
-        set_shader(ShaderId::BgField);
-        set_color({1, 1, 1, 1});
+    // field_every == 2: half of the field rows per frame (even load), relies on the canvas
+    // keeping its previous contents
+    set_canvas(field);
+    send(ShaderId::BgField, "time", (float)t);
+    send(ShaderId::BgField, "spin_time", 0.0f);
+    send(ShaderId::BgField, "spin_amount", 0.0f);
+    set_shader(ShaderId::BgField);
+    set_color({1, 1, 1, 1});
+    if (field_every == 1) {
         draw(bg_polar[k], 0, 0);
+    } else {
+        int half = (int)fh / 2;
+        int y0 = (frame_no & 1) ? half : 0, y1 = (frame_no & 1) ? (int)fh : half;
+        Quad q{0, (float)y0, fw, (float)(y1 - y0), fw, fh};
+        draw(bg_polar[k], q, 0, (float)y0);
+    }
+
+    if (merged) {
+        set_canvas(canvas);
+        send(ShaderId::BgMerged, "pixel_size", pixel_size);
+        send(ShaderId::BgMerged, "k", (float)k);
+        send(ShaderId::BgMerged, "field_size", fw, fh);
+        send(ShaderId::BgMerged, "contrast", 1.0f);
+        send(ShaderId::BgMerged, "spin_amount", 0.0f);
+        send(ShaderId::BgMerged, "colour_1", kBg1, 4);
+        send(ShaderId::BgMerged, "colour_2", kBg2, 4);
+        send(ShaderId::BgMerged, "colour_3", kBg3, 4);
+        set_shader(ShaderId::BgMerged);
+        draw(ft, 0, 0, 0, SW / fw, SH / fh);
+        set_shader(ShaderId::Default);
+        return;
     }
 
     // block b's colour pixel centre (b + 0.5) must sample field texel coordinate b/k + 1.5
@@ -294,6 +318,30 @@ void background_blocks(double t, int k, int field_every) {
     set_canvas(canvas);
     set_shader(ShaderId::Default);
     draw(canvas_texture(bg_color), 0, 0, 0, pixel_size, pixel_size);
+}
+
+void background_parts(double t, int k, bool field_only) {
+    Canvas *field = bg_field[k];
+    Texture *ft = canvas_texture(field);
+    float fw, fh;
+    texture_dimensions(ft, fw, fh);
+    if (field_only) {
+        set_canvas(field);
+        send(ShaderId::BgField, "time", (float)t);
+        set_shader(ShaderId::BgField);
+        draw(bg_polar[k], 0, 0);
+    } else {
+        set_canvas(bg_color);
+        set_shader(ShaderId::BgColor);
+        float x0 = 1.5f - 0.5f / k;
+        Quad q{x0, x0, (float)nbx / k, (float)nby / k, fw, fh};
+        draw(ft, q, 0, 0, 0, (float)k, (float)k);
+        set_canvas(canvas);
+        set_shader(ShaderId::Default);
+        draw(canvas_texture(bg_color), 0, 0, 0, pixel_size, pixel_size);
+    }
+    set_shader(ShaderId::Default);
+    set_canvas(canvas);
 }
 
 // ------------------------------------------------------------------ CRT
@@ -328,6 +376,48 @@ void build_crt_luts() {
     crt_lut_g = create_texture(dg);
 }
 
+Texture *crt_map;
+
+uint16_t to_half(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    uint32_t sign = (x >> 16) & 0x8000, mant = x & 0x7fffff;
+    int exp = (int)((x >> 23) & 0xff) - 127 + 15;
+    if (exp <= 0) return (uint16_t)sign;  // flush tiny values to zero
+    if (exp >= 31) return (uint16_t)(sign | 0x7c00);
+    uint32_t h = sign | ((uint32_t)exp << 10) | (mant >> 13);
+    if (mant & 0x1000) h++;  // round to nearest
+    return (uint16_t)h;
+}
+
+float smoothstepf(float e0, float e1, float x) {
+    float t = clampf((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
+}
+
+// CRT.fs barrel distortion (as an offset from tc) and edge mask at every screen pixel centre.
+void build_crt_map() {
+    std::vector<uint16_t> px((size_t)SW * SH * 4);
+    float dfx = 1.0f + 0.07f * kCrt / 100, dfy = 1.0f + 0.1f * kCrt / 100;
+    float sf = 1.0f - 0.008f * kCrt / 100, feather = 0.01f;
+    for (int y = 0; y < SH; y++)
+        for (int x = 0; x < SW; x++) {
+            float u = (x + 0.5f) / SW, v = (y + 0.5f) / SH;
+            float tx = (u * 2 - 1) * sf, ty = (v * 2 - 1) * sf;
+            float nx = tx + (ty * ty) * tx * (dfx - 1), ny = ty + (tx * tx) * ty * (dfy - 1);
+            float mask = (1 - smoothstepf(1 - feather, 1, std::fabs(nx) - 0.01f)) *
+                         (1 - smoothstepf(1 - feather, 1, std::fabs(ny) - 0.01f));
+            uint16_t *o = &px[((size_t)y * SW + x) * 4];
+            o[0] = to_half((nx + 1) / 2 - u);
+            o[1] = to_half((ny + 1) / 2 - v);
+            o[2] = to_half(mask);
+            o[3] = to_half(1);
+        }
+    TextureDesc d{SW, SH, (const uint8_t *)px.data()};
+    d.half_float = true;
+    crt_map = create_texture(d);
+}
+
 void crt_uniforms(ShaderId id, double t) {
     float df[2] = {1.0f + 0.07f * kCrt / 100, 1.0f + 0.1f * kCrt / 100};
     float sf[2] = {1.0f - 0.008f * kCrt / 100, 1.0f - 0.008f * kCrt / 100};
@@ -347,31 +437,33 @@ void crt_uniforms(ShaderId id, double t) {
 }
 
 // ------------------------------------------------------------------ benchmark configurations
-enum Bg { BG_NONE, BG_ORIG, BG_BLOCKS };
-enum Crt { CRT_NONE, CRT_ORIG, CRT_FAST };
+enum Bg { BG_NONE, BG_ORIG, BG_BLOCKS, BG_FIELD_ONLY, BG_NO_FIELD };
+enum Crt { CRT_NONE, CRT_ORIG, CRT_FAST, CRT_MAP };
 struct Config {
     const char *name;
     Bg bg;
     int k;
-    int field_every;     // recompute the background field every N frames
+    int field_every;     // 1: whole field every frame, 2: half of it per frame
+    bool merged;         // colour + expansion in one pass
     bool cards, fast_cards, ui;
     Crt crt;
     int editions;        // 0 none, 1 original polychrome.fs, 2 vl_polychrome
+    bool rt_switches;    // diagnostics: two extra empty render target scenes
 };
 const Config kConfigs[] = {
-    {"original", BG_ORIG, 0, 1, true, false, true, CRT_ORIG, 1},
-    {"opt k=1", BG_BLOCKS, 1, 1, true, true, true, CRT_FAST, 2},
-    {"opt k=2", BG_BLOCKS, 2, 1, true, true, true, CRT_FAST, 2},
-    {"opt k=3", BG_BLOCKS, 3, 1, true, true, true, CRT_FAST, 2},
-    {"opt k=1 30Hz", BG_BLOCKS, 1, 2, true, true, true, CRT_FAST, 2},
-    {"opt k=2 30Hz", BG_BLOCKS, 2, 2, true, true, true, CRT_FAST, 2},
-    {"bg k=1 only", BG_BLOCKS, 1, 1, false, false, false, CRT_NONE, 0},
-    {"bg k=2 only", BG_BLOCKS, 2, 1, false, false, false, CRT_NONE, 0},
-    {"crt only", BG_NONE, 0, 1, false, false, false, CRT_FAST, 0},
-    {"cards ed opt", BG_NONE, 0, 1, true, true, false, CRT_NONE, 2},
-    {"cards no ed", BG_NONE, 0, 1, true, true, false, CRT_NONE, 0},
-    {"ui only", BG_NONE, 0, 1, false, false, true, CRT_NONE, 0},
-    {"clear only", BG_NONE, 0, 1, false, false, false, CRT_NONE, 0},
+    {"original", BG_ORIG, 0, 1, false, true, false, true, CRT_ORIG, 1, false},
+    {"k2 (M0d)", BG_BLOCKS, 2, 1, false, true, true, true, CRT_FAST, 2, false},
+    {"k2 crtmap", BG_BLOCKS, 2, 1, false, true, true, true, CRT_MAP, 2, false},
+    {"k2 map merged", BG_BLOCKS, 2, 1, true, true, true, true, CRT_MAP, 2, false},
+    {"k2 map mrg half", BG_BLOCKS, 2, 2, true, true, true, true, CRT_MAP, 2, false},
+    {"k1 map mrg half", BG_BLOCKS, 1, 2, true, true, true, true, CRT_MAP, 2, false},
+    {"k2 map half", BG_BLOCKS, 2, 2, false, true, true, true, CRT_MAP, 2, false},
+    {"bg k2 field only", BG_FIELD_ONLY, 2, 1, false, false, false, false, CRT_NONE, 0, false},
+    {"bg k2 no field", BG_NO_FIELD, 2, 1, false, false, false, false, CRT_NONE, 0, false},
+    {"bg k2 merged", BG_BLOCKS, 2, 1, true, false, false, false, CRT_NONE, 0, false},
+    {"crt map only", BG_NONE, 0, 1, false, false, false, false, CRT_MAP, 0, false},
+    {"2 empty rts", BG_NONE, 0, 1, false, false, false, false, CRT_NONE, 0, true},
+    {"clear only", BG_NONE, 0, 1, false, false, false, false, CRT_NONE, 0, false},
 };
 constexpr int kConfigCount = sizeof(kConfigs) / sizeof(kConfigs[0]);
 constexpr int kFramesPerConfig = 150;
@@ -390,9 +482,16 @@ int shown_config = 2;
 void render(const Config &cfg, double t) {
     frame_no++;
     set_canvas(canvas);
-    if (cfg.bg == BG_NONE) clear({0, 0, 0, 1});  // the background covers the whole canvas
+    if (cfg.bg != BG_BLOCKS && cfg.bg != BG_ORIG) clear({0, 0, 0, 1});  // a background covers it all
     if (cfg.bg == BG_ORIG) background_original(t);
-    if (cfg.bg == BG_BLOCKS) background_blocks(t, cfg.k, cfg.field_every);
+    if (cfg.bg == BG_BLOCKS) background_blocks(t, cfg.k, cfg.field_every, cfg.merged);
+    if (cfg.bg == BG_FIELD_ONLY || cfg.bg == BG_NO_FIELD) background_parts(t, cfg.k, cfg.bg == BG_FIELD_ONLY);
+    if (cfg.rt_switches) {
+        set_canvas(bg_color);
+        clear({0, 0, 0, 1});
+        set_canvas(bg_field[2]);
+        clear({0, 0, 0, 1});
+    }
     set_canvas(canvas);
     if (cfg.ui) {
         // HUD column + panels similar to the in-run layout
@@ -406,11 +505,12 @@ void render(const Config &cfg, double t) {
 
     set_canvas(nullptr);
     set_color({1, 1, 1, 1});
-    if (cfg.crt == CRT_FAST) {
+    if (cfg.crt == CRT_FAST || cfg.crt == CRT_MAP) {
         // writes final pixels without blending: no backbuffer clear needed
         set_aux_texture(0, crt_lut_f);
         set_aux_texture(1, crt_lut_g);
-        crt_uniforms(ShaderId::CrtFast, t);
+        set_aux_texture(2, crt_map);
+        crt_uniforms(cfg.crt == CRT_MAP ? ShaderId::CrtMap : ShaderId::CrtFast, t);
     } else {
         clear({0, 0, 0, 1});
         if (cfg.crt == CRT_ORIG) crt_uniforms(ShaderId::CRT, t);
@@ -419,6 +519,7 @@ void render(const Config &cfg, double t) {
     set_shader(ShaderId::Default);
     set_aux_texture(0, nullptr);
     set_aux_texture(1, nullptr);
+    set_aux_texture(2, nullptr);
 }
 
 }  // namespace
@@ -442,6 +543,7 @@ void init() {
         bg_polar[k] = build_polar(k, fw, fh);
     }
     build_crt_luts();
+    build_crt_map();
     load_font();
 
     const float cw = 2.4f * 35 / 41, ch = 2.4f * 47 / 41;
