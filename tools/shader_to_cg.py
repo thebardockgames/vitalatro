@@ -137,6 +137,10 @@ def convert(code, stage):
 
     for k, v in RESERVED.items():
         code = re.sub(r'\b%s\b' % k, v, code)
+    # Explicit 'mediump' declarations (only used by Vitalatro's own shaders) become half precision,
+    # which the Vita's USSE executes at twice the rate. Desktop GL ignores the qualifier.
+    for k, v in (('number', 'half'), ('float', 'half'), ('vec2', 'half2'), ('vec3', 'half3'), ('vec4', 'half4')):
+        code = re.sub(r'\bmediump\s+%s\b' % k, v, code)
     for k, v in TYPES.items():
         code = re.sub(r'\b%s\b' % k, v, code)
     code = re.sub(r'\bImage\b', 'sampler2D', code)
