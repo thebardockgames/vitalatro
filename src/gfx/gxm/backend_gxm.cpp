@@ -182,7 +182,8 @@ const SceGxmProgram *load_gxp(const char *name, SceGxmShaderPatcherId *id) {
     return prog;
 }
 
-void build_program(Program &P, const char *vname, const char *fname, ShaderId id, bool blend) {
+void build_program(Program &P, const char *vname, const char *fname, ShaderId id, bool blend,
+                   bool f16 = false) {
     const SceGxmProgram *vg = load_gxp(vname, &P.vid);
     const SceGxmProgram *fg = load_gxp(fname, &P.fid);
 
@@ -210,8 +211,8 @@ void build_program(Program &P, const char *vname, const char *fname, ShaderId id
     bi.alphaSrc = SCE_GXM_BLEND_FACTOR_ONE;
     bi.alphaDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     if (sceGxmShaderPatcherCreateFragmentProgram(
-            g_patcher, P.fid, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, SCE_GXM_MULTISAMPLE_NONE,
-            blend ? &bi : nullptr, vg, &P.fp) < 0)
+            g_patcher, P.fid, f16 ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4,
+            SCE_GXM_MULTISAMPLE_NONE, blend ? &bi : nullptr, vg, &P.fp) < 0)
         platform::fatal("fragment program %s", fname);
 
     std::memset(&P.p, 0, sizeof P.p);
@@ -321,7 +322,7 @@ bool backend_init() {
         const ShaderInfo &si = shader_info((ShaderId)i);
         std::string v = si.custom_vertex ? std::string(si.name) + "_v" : std::string("default_v");
         std::string f = std::string(si.name) + "_f";
-        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, true);
+        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, !si.f16_target, si.f16_target);
     }
     build_program(g_clear, "default_v", "clear_f", ShaderId::Count, false);
 
@@ -418,18 +419,23 @@ void backend_destroy_texture(Texture *t) {
 
 void backend_create_canvas(Canvas *c) {
     GxmCanvas *g = new GxmCanvas();
+    bool f16 = c->format == CanvasFormat::RGBA16F;
+    int bpp = f16 ? 8 : 4;
     int stride = ALIGN(c->w, 16);
-    g->mem = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)4 * stride * c->h,
+    g->mem = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)bpp * stride * c->h,
                        SCE_GXM_COLOR_SURFACE_ALIGNMENT,
                        SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE, &g->uid);
-    sceGxmColorSurfaceInit(&g->surface, SCE_GXM_COLOR_FORMAT_A8B8G8R8, SCE_GXM_COLOR_SURFACE_LINEAR,
-                           SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
+    sceGxmColorSurfaceInit(&g->surface, f16 ? SCE_GXM_COLOR_FORMAT_F16F16F16F16_ABGR : SCE_GXM_COLOR_FORMAT_A8B8G8R8,
+                           SCE_GXM_COLOR_SURFACE_LINEAR, SCE_GXM_COLOR_SURFACE_SCALE_NONE,
+                           f16 ? SCE_GXM_OUTPUT_REGISTER_SIZE_64BIT : SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
                            c->w, c->h, stride, g->mem);
     GxmTex *gt = new GxmTex();
-    sceGxmTextureInitLinearStrided(&gt->tex, g->mem, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, c->w, c->h,
-                                   stride * 4);
-    sceGxmTextureSetMinFilter(&gt->tex, SCE_GXM_TEXTURE_FILTER_LINEAR);
-    sceGxmTextureSetMagFilter(&gt->tex, SCE_GXM_TEXTURE_FILTER_LINEAR);
+    sceGxmTextureInitLinearStrided(&gt->tex, g->mem,
+                                   f16 ? SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_ABGR : SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR,
+                                   c->w, c->h, stride * bpp);
+    SceGxmTextureFilter filt = c->filter == Filter::Linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT;
+    sceGxmTextureSetMinFilter(&gt->tex, filt);
+    sceGxmTextureSetMagFilter(&gt->tex, filt);
     sceGxmTextureSetUAddrMode(&gt->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
     sceGxmTextureSetVAddrMode(&gt->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
     gt->uid = -1;

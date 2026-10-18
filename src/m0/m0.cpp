@@ -146,7 +146,7 @@ std::vector<Card> cards;
 
 // fast: with dissolve == 0 and no hover tilt, dissolve.fs reduces exactly to the default shader
 // (shadow: rgb 0 / alpha * 0.3; normal: the texel), so those layers skip it.
-void draw_card(const Card &c, double t, bool fast) {
+void draw_card(const Card &c, double t, bool fast, int editions) {
     VT s = c.vt;
     float sh = 0.1f;
     float par_x = (s.x + s.w / 2 - 10.5f) / 10.5f * 1.5f;
@@ -168,10 +168,11 @@ void draw_card(const Card &c, double t, bool fast) {
             sprite_draw_self(*c.front, c.fx, c.fy, c.vt);
         }
     }
-    if (c.edition != ShaderId::Default) {
+    if (c.edition != ShaderId::Default && editions) {
+        ShaderId ed = editions == 2 ? ShaderId::PolychromeFast : ShaderId::Polychrome;
         float e[2] = {(float)std::fmod(t / 28.0, 100.0), (float)t};
-        send(c.edition, shader_info(c.edition).uniforms[0].name, e, 2);
-        card_shader(c.edition, *c.center, c.cx, c.cy, c.id, false);
+        send(ed, "polychrome", e, 2);
+        card_shader(ed, *c.center, c.cx, c.cy, c.id, false);
         sprite_draw_self(*c.center, c.cx, c.cy, c.vt);
     }
     set_shader(ShaderId::Default);
@@ -230,7 +231,9 @@ void background_original(double t) {
     set_shader(ShaderId::Default);
 }
 
-// Three passes: paint field every k blocks -> per-block colour -> expand to screen pixels.
+// Three passes: paint field every k blocks (RGBA16F) -> per-block colour, sampling the field with
+// hardware bilinear filtering -> expand blocks to pixels with nearest filtering. No pass does a
+// dependent texture read.
 void background_blocks(double t, int k) {
     Canvas *field = bg_field[k];
     Texture *ft = canvas_texture(field);
@@ -248,23 +251,22 @@ void background_blocks(double t, int k) {
     set_color({1, 1, 1, 1});
     draw_canvas_stretched(a_ui.tex, (int)fw, (int)fh);  // texture unused by the field shader
 
+    // block b's colour pixel centre (b + 0.5) must sample field texel coordinate b/k + 1.5
     set_canvas(bg_color);
-    send(ShaderId::BgColor, "k", (float)k);
     send(ShaderId::BgColor, "contrast", 1.0f);
     send(ShaderId::BgColor, "spin_amount", 0.0f);
-    send(ShaderId::BgColor, "field_size", fw, fh);
     send(ShaderId::BgColor, "colour_1", kBg1, 4);
     send(ShaderId::BgColor, "colour_2", kBg2, 4);
     send(ShaderId::BgColor, "colour_3", kBg3, 4);
     set_shader(ShaderId::BgColor);
-    draw_canvas_stretched(ft, nbx, nby);
+    float x0 = 1.5f - 0.5f / k;
+    Quad q{x0, x0, (float)nbx / k, (float)nby / k, fw, fh};
+    draw(ft, q, 0, 0, 0, (float)k, (float)k);
 
+    // original block grid: block = floor(pixel_centre / pixel_size)
     set_canvas(canvas);
-    send(ShaderId::BgFinal, "pixel_size", pixel_size);
-    send(ShaderId::BgFinal, "blocks", (float)nbx, (float)nby);
-    set_shader(ShaderId::BgFinal);
-    draw_canvas_stretched(canvas_texture(bg_color), SW, SH);
     set_shader(ShaderId::Default);
+    draw(canvas_texture(bg_color), 0, 0, 0, pixel_size, pixel_size);
 }
 
 // ------------------------------------------------------------------ CRT
@@ -298,19 +300,26 @@ struct Config {
     int k;
     bool cards, fast_cards, ui;
     Crt crt;
+    int crt_mode;        // vl_crt_fast diagnostics: 0 full, 1 no scanlines, 2 no chroma either
+    int editions;        // 0 none, 1 original polychrome, 2 fast-trig polychrome
 };
 const Config kConfigs[] = {
-    {"original", BG_ORIG, 0, true, false, true, CRT_ORIG},
-    {"opt bg k=1", BG_BLOCKS, 1, true, true, true, CRT_FAST},
-    {"opt bg k=2", BG_BLOCKS, 2, true, true, true, CRT_FAST},
-    {"opt bg k=3", BG_BLOCKS, 3, true, true, true, CRT_FAST},
-    {"opt bg k=4", BG_BLOCKS, 4, true, true, true, CRT_FAST},
-    {"opt no bg", BG_NONE, 0, true, true, true, CRT_FAST},
-    {"opt cards only", BG_NONE, 0, true, true, false, CRT_NONE},
-    {"clear only", BG_NONE, 0, false, false, false, CRT_NONE},
+    {"original", BG_ORIG, 0, true, false, true, CRT_ORIG, 0, 1},
+    {"opt k=1", BG_BLOCKS, 1, true, true, true, CRT_FAST, 0, 2},
+    {"opt k=2", BG_BLOCKS, 2, true, true, true, CRT_FAST, 0, 2},
+    {"opt k=3", BG_BLOCKS, 3, true, true, true, CRT_FAST, 0, 2},
+    {"k=2 crt noscan", BG_BLOCKS, 2, true, true, true, CRT_FAST, 1, 2},
+    {"k=2 crt 1tap", BG_BLOCKS, 2, true, true, true, CRT_FAST, 2, 2},
+    {"bg k=2 only", BG_BLOCKS, 2, false, false, false, CRT_NONE, 0, 0},
+    {"crt only", BG_NONE, 0, false, false, false, CRT_FAST, 0, 0},
+    {"cards ed orig", BG_NONE, 0, true, true, false, CRT_NONE, 0, 1},
+    {"cards ed fast", BG_NONE, 0, true, true, false, CRT_NONE, 0, 2},
+    {"cards no ed", BG_NONE, 0, true, true, false, CRT_NONE, 0, 0},
+    {"ui only", BG_NONE, 0, false, false, true, CRT_NONE, 0, 0},
+    {"clear only", BG_NONE, 0, false, false, false, CRT_NONE, 0, 0},
 };
 constexpr int kConfigCount = sizeof(kConfigs) / sizeof(kConfigs[0]);
-constexpr int kFramesPerConfig = 180;
+constexpr int kFramesPerConfig = 150;
 
 struct Result { double avg_ms, max_ms, cpu_ms; int draws; };
 Result results[kConfigCount];
@@ -321,6 +330,7 @@ bool done = false;
 float fps_display = 0;
 double t0;
 int shown_config = 2;
+
 
 void render(const Config &cfg, double t) {
     set_canvas(canvas);
@@ -336,13 +346,16 @@ void render(const Config &cfg, double t) {
             ui_panel(5.6f + (i % 10) * 1.5f, 0.3f + (i / 10) * 0.6f, 1.3f, 0.45f, {0.3f, 0.3f, 0.35f, 0.6f});
     }
     if (cfg.cards)
-        for (const Card &c : cards) draw_card(c, t, cfg.fast_cards);
+        for (const Card &c : cards) draw_card(c, t, cfg.fast_cards, cfg.editions);
 
     set_canvas(nullptr);
     clear({0, 0, 0, 1});
     set_color({1, 1, 1, 1});
     if (cfg.crt == CRT_ORIG) crt_uniforms(ShaderId::CRT, t);
-    if (cfg.crt == CRT_FAST) crt_uniforms(ShaderId::CrtFast, t);
+    if (cfg.crt == CRT_FAST) {
+        send(ShaderId::CrtFast, "vl_mode", (float)cfg.crt_mode);
+        crt_uniforms(ShaderId::CrtFast, t);
+    }
     draw(canvas, 0, 0);
     set_shader(ShaderId::Default);
 }
@@ -360,8 +373,9 @@ void init() {
     pixel_size = std::sqrt((float)(SW * SW + SH * SH)) / 700.0f;
     nbx = (int)std::ceil(SW / pixel_size);
     nby = (int)std::ceil(SH / pixel_size);
-    bg_color = create_canvas(nbx, nby);
-    for (int k = 1; k <= 4; k++) bg_field[k] = create_canvas((nbx + k - 1) / k + 3, (nby + k - 1) / k + 3);
+    bg_color = create_canvas(nbx, nby, CanvasFormat::RGBA8, Filter::Nearest);
+    for (int k = 1; k <= 4; k++)
+        bg_field[k] = create_canvas((nbx + k - 1) / k + 3, (nby + k - 1) / k + 3, CanvasFormat::RGBA16F);
     load_font();
 
     const float cw = 2.4f * 35 / 41, ch = 2.4f * 47 / 41;
@@ -371,8 +385,8 @@ void init() {
         cards.push_back({{7.5f + i * 1.45f, 7.6f, cw, ch, 0.02f * (i - 3.5f), 1}, &a_centers, 1, 0,
                          &a_deck, (float)(i % 13), (float)(i % 4), ShaderId::Default, id++});
     // 5 jokers, some with editions
-    const ShaderId eds[5] = {ShaderId::Polychrome, ShaderId::Holo, ShaderId::Foil, ShaderId::Default,
-                             ShaderId::Default};
+    const ShaderId eds[5] = {ShaderId::Polychrome, ShaderId::Polychrome, ShaderId::Polychrome,
+                             ShaderId::Default, ShaderId::Default};
     for (int i = 0; i < 5; i++)
         cards.push_back({{6.2f + i * 2.2f, 0.9f, cw, ch, 0.01f * (i - 2), 1}, &a_jokers, (float)i, 0,
                          nullptr, 0, 0, eds[i], id++});

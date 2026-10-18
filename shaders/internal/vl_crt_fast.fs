@@ -7,6 +7,7 @@ extern MY_HIGHP_OR_MEDIUMP vec2 scale_fac;
 extern MY_HIGHP_OR_MEDIUMP number feather_fac;
 extern MY_HIGHP_OR_MEDIUMP number crt_intensity;
 extern MY_HIGHP_OR_MEDIUMP number scanlines;
+extern number vl_mode;  // benchmark only: 1 = skip scanlines, 2 = also skip chromatic taps
 
 #define BUFF 0.01
 
@@ -30,13 +31,14 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
 
     MY_HIGHP_OR_MEDIUMP vec4 crt_tex = Texel(tex, tc);
     MY_HIGHP_OR_MEDIUMP float crt_amout_adjusted = max(0., (crt_intensity) / (0.16 * 0.3));
-    if (crt_amout_adjusted > 0.0000001) {
+    if (crt_amout_adjusted > 0.0000001 && vl_mode < 1.5) {
         crt_tex.r = crt_tex.r * (1. - crt_amout_adjusted) + crt_amout_adjusted * Texel(tex, tc + vec2(0.0005 * 1600. / love_ScreenSize.x, 0.)).r;
         crt_tex.g = crt_tex.g * (1. - crt_amout_adjusted) + crt_amout_adjusted * Texel(tex, tc + vec2(-0.0005 * 1600. / love_ScreenSize.x, 0.)).g;
     }
     MY_HIGHP_OR_MEDIUMP vec3 rgb_result = crt_tex.rgb * (1.0 - crt_intensity);
 
-    MY_HIGHP_OR_MEDIUMP vec3 rgb_scanline = vec3(
+    MY_HIGHP_OR_MEDIUMP vec3 rgb_scanline = vec3(0.0);
+    if (vl_mode < 0.5) rgb_scanline = vec3(
         clamp(-0.3 + 2.0 * fast_sin(tc.y * scanlines - 3.14 / 4.0) - 0.8 * clamp(fast_sin(tc.x * scanlines * 4.0), 0.4, 1.0), -1.0, 2.0),
         clamp(-0.3 + 2.0 * fast_cos(tc.y * scanlines) - 0.8 * clamp(fast_cos(tc.x * scanlines * 4.0), 0.0, 1.0), -1.0, 2.0),
         clamp(-0.3 + 2.0 * fast_cos(tc.y * scanlines - 3.14 / 3.0) - 0.8 * clamp(fast_cos(tc.x * scanlines * 4.0 - 3.14 / 4.0), 0.0, 1.0), -1.0, 2.0));

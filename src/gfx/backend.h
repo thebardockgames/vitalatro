@@ -17,6 +17,8 @@ struct Texture {
 
 struct Canvas {
     int w = 0, h = 0;
+    CanvasFormat format = CanvasFormat::RGBA8;
+    Filter filter = Filter::Linear;
     Texture tex;
     void *impl = nullptr;
 };

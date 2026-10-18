@@ -35,7 +35,26 @@ def gather_shaders(game_shaders, tmp):
     for d in (game_shaders, HERE.parent / 'shaders' / 'internal'):
         for f in d.glob('*.fs'):
             shutil.copy2(f, tmp / f.name)
+    for name in FAST_TRIG_SHADERS:
+        src = (game_shaders / (name + '.fs')).read_text(encoding='utf-8')
+        (tmp / ('vl_fast_' + name + '.fs')).write_text(fast_trig(src), encoding='utf-8')
     return tmp
+
+
+# Edition shaders whose sin/cos are swapped for vl_fsin/vl_fcos (|error| < 0.001).
+FAST_TRIG_SHADERS = ['polychrome']
+FAST_TRIG_FUNCS = """
+number vl_fsin(number x) { number t = fract(x * 0.15915494 + 0.5) * 2.0 - 1.0; number y = 4.0 * t * (1.0 - abs(t)); return 0.225 * (y * abs(y) - y) + y; }
+number vl_fcos(number x) { return vl_fsin(x + 1.5707963); }
+"""
+
+
+def fast_trig(src):
+    import re
+    src = re.sub(r'\bsin\s*\(', 'vl_fsin(', src)
+    src = re.sub(r'\bcos\s*\(', 'vl_fcos(', src)
+    end = src.find('#endif') + len('#endif')  # after LOVE's precision prelude
+    return src[:end] + FAST_TRIG_FUNCS + src[end:]
 
 
 def build_vita_shaders(src, out):

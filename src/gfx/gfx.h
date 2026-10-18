@@ -17,7 +17,7 @@ enum class ShaderId : uint8_t {
     Background, CRT, Dissolve, Foil, Holo, Polychrome, Negative, NegativeShine,
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
     // Vitalatro's own programs (shaders/internal)
-    BgField, BgColor, BgFinal, CrtFast,
+    BgField, BgColor, CrtFast, PolychromeFast,
     Count
 };
 
@@ -33,6 +33,7 @@ struct ShaderInfo {
     uint8_t uniform_count;
     uint8_t block_floats;  // total floats in the block
     bool custom_vertex;    // has the 'hovering' tilt position() function
+    bool f16_target = false;  // renders into an RGBA16F canvas (no blending)
 };
 const ShaderInfo &shader_info(ShaderId id);
 constexpr int kMaxUniformFloats = 48;
@@ -62,7 +63,8 @@ Texture *create_texture(const TextureDesc &desc);
 void destroy_texture(Texture *t);
 void texture_dimensions(const Texture *t, float &w, float &h);  // love getDimensions()
 
-Canvas *create_canvas(int w, int h);
+enum class CanvasFormat : uint8_t { RGBA8, RGBA16F };
+Canvas *create_canvas(int w, int h, CanvasFormat fmt = CanvasFormat::RGBA8, Filter filter = Filter::Linear);
 Texture *canvas_texture(Canvas *c);
 
 // Frame

@@ -250,9 +250,12 @@ void backend_create_canvas(Canvas *c) {
     GLTex *gt = new GLTex();
     glGenTextures(1, &gt->id);
     glBindTexture(GL_TEXTURE_2D, gt->id);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, c->w, c->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    bool f16 = c->format == CanvasFormat::RGBA16F;
+    glTexImage2D(GL_TEXTURE_2D, 0, f16 ? GL_RGBA16F : GL_RGBA8, c->w, c->h, 0, GL_RGBA,
+                 f16 ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE, nullptr);
+    GLenum filt = c->filter == Filter::Linear ? GL_LINEAR : GL_NEAREST;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filt);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filt);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     c->tex.impl = gt;

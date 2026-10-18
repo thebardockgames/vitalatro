@@ -41,10 +41,12 @@ const UniformDesc u_splash[] = {
 const UniformDesc u_gold_seal[] = {{"gold_seal", 0, 4}};
 const UniformDesc u_bg_field[] = {{"time", 0, 1}, {"spin_time", 1, 1}, {"spin_amount", 2, 1},
                                    {"k", 3, 1}, {"screen", 4, 2}, {"pixel_size", 6, 1}};
-const UniformDesc u_bg_color[] = {{"k", 0, 1}, {"contrast", 1, 1}, {"spin_amount", 2, 1},
-                                   {"field_size", 4, 2}, {"colour_1", 8, 4}, {"colour_2", 12, 4},
-                                   {"colour_3", 16, 4}};
-const UniformDesc u_bg_final[] = {{"pixel_size", 0, 1}, {"blocks", 2, 2}};
+const UniformDesc u_bg_color[] = {{"contrast", 1, 1}, {"spin_amount", 2, 1}, {"colour_1", 8, 4},
+                                   {"colour_2", 12, 4}, {"colour_3", 16, 4}};
+const UniformDesc u_crt_fast[] = {
+    {"time", 0, 1}, {"feather_fac", 1, 1}, {"bloom_fac", 2, 1}, {"crt_intensity", 3, 1},
+    {"distortion_fac", 4, 2}, {"scale_fac", 6, 2}, {"glitch_intensity", 8, 1}, {"scanlines", 9, 1},
+    {"hovering", 10, 1}, {"screen_scale", 11, 1}, {"mouse_screen_pos", 12, 2}, {"vl_mode", 14, 1}};
 const UniformDesc u_skew[] = {{"hovering", 0, 1}, {"screen_scale", 1, 1}, {"mouse_screen_pos", 2, 2}};
 
 #define N(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
@@ -69,10 +71,10 @@ const ShaderInfo kShaders[(int)ShaderId::Count] = {
     {"splash", u_splash, N(u_splash), 12, false},
     {"gold_seal", u_gold_seal, N(u_gold_seal), 4, false},
     {"skew", u_skew, N(u_skew), 4, true},
-    {"vl_bg_field", u_bg_field, N(u_bg_field), 8, false},
+    {"vl_bg_field", u_bg_field, N(u_bg_field), 8, false, true},
     {"vl_bg_color", u_bg_color, N(u_bg_color), 20, false},
-    {"vl_bg_final", u_bg_final, N(u_bg_final), 4, false},
-    {"vl_crt_fast", u_crt, N(u_crt), 16, true},  // same uniforms as CRT.fs
+    {"vl_crt_fast", u_crt_fast, N(u_crt_fast), 16, true},  // CRT.fs uniforms + vl_mode
+    {"vl_fast_polychrome", u_polychrome, N(u_polychrome), 24, true},
 };
 #undef N
 

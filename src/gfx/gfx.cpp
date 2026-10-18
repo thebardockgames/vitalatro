@@ -214,10 +214,13 @@ void destroy_texture(Texture *t) {
 
 void texture_dimensions(const Texture *t, float &w, float &h) { w = t->lw; h = t->lh; }
 
-Canvas *create_canvas(int w, int h) {
+Canvas *create_canvas(int w, int h, CanvasFormat fmt, Filter filter) {
     Canvas *c = new Canvas();
     c->w = w;
     c->h = h;
+    c->format = fmt;
+    c->filter = filter;
+    c->tex.filter = filter;
     c->tex.pw = w;
     c->tex.ph = h;
     c->tex.lw = (float)w;
