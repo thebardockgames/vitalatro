@@ -16,6 +16,8 @@ enum class ShaderId : uint8_t {
     Default,  // love's default: Texel(tex, uv) * color
     Background, CRT, Dissolve, Foil, Holo, Polychrome, Negative, NegativeShine,
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
+    // Vitalatro's own programs (shaders/internal)
+    BgField, BgColor, BgFinal, CrtFast,
     Count
 };
 
@@ -90,6 +92,8 @@ void set_line_width(float w);
 // Shaders
 void set_shader(ShaderId id);  // ShaderId::Default == love.graphics.setShader()
 ShaderId current_shader();
+// Extra samplers vl_Aux1 / vl_Aux2 for internal shaders (slot 0 / 1).
+void set_aux_texture(int slot, Texture *t);
 void send(ShaderId id, const char *uniform, const float *v, int n);
 inline void send(ShaderId id, const char *u, float v) { send(id, u, &v, 1); }
 inline void send(ShaderId id, const char *u, float x, float y) { float v[2] = {x, y}; send(id, u, v, 2); }

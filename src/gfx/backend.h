@@ -35,6 +35,7 @@ struct Cmd {
     Canvas *target;      // Target
     Color clear_color;   // Clear
     Texture *texture;    // Draw
+    Texture *aux[2];     // Draw: vl_Aux1, vl_Aux2
     uint32_t uniforms;   // Draw: offset into FrameData::uniforms
     uint32_t first_vertex, vertex_count;
     uint32_t first_index, index_count;  // indices are relative to first_vertex

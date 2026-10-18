@@ -28,12 +28,22 @@ def copy_tree(src, dst, pattern):
                 shutil.copy2(f, out)
 
 
+def gather_shaders(game_shaders, tmp):
+    """Balatro's shaders plus Vitalatro's internal ones, in one directory."""
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    for d in (game_shaders, HERE.parent / 'shaders' / 'internal'):
+        for f in d.glob('*.fs'):
+            shutil.copy2(f, tmp / f.name)
+    return tmp
+
+
 def build_vita_shaders(src, out):
     sdk = os.environ.get('SCE_PSP2_SDK_DIR', r'C:\PSVITA\sdk')
     cgc = Path(sdk) / 'host_tools' / 'bin' / 'psp2cgc.exe'
     if not cgc.exists():
         sys.exit(f'psp2cgc not found at {cgc}')
-    cg_dir = out.parent / 'shaders_cg'
+    cg_dir = out.parent.parent / 'shaders_cg'  # outside the asset dir (not packaged)
     shutil.rmtree(cg_dir, ignore_errors=True)
     sys.argv = ['shader_to_cg', str(src), str(cg_dir)]
     shader_to_cg.main()
@@ -53,10 +63,11 @@ def main():
     copy_tree(res / 'textures' / '1x', out / 'textures' / '1x', '**/*.png')
     copy_tree(res / 'fonts', out / 'fonts', '*.ttf')
     copy_tree(res / 'sounds', out / 'sounds', '*.ogg')
+    shaders = gather_shaders(res / 'shaders', out.parent / ('shaders_src_' + target))
     if target == 'vita':
-        build_vita_shaders(res / 'shaders', out / 'shaders')
+        build_vita_shaders(shaders, out / 'shaders')
     else:
-        copy_tree(res / 'shaders', out / 'shaders', '*.fs')
+        copy_tree(shaders, out / 'shaders', '*.fs')
     print(f'assets ready in {out}')
 
 

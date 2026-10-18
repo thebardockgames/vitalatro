@@ -18,6 +18,7 @@ struct State {
     float line_width = 1;
     ShaderId shader = ShaderId::Default;
     Canvas *canvas = nullptr;
+    Texture *aux[2] = {nullptr, nullptr};
     float uniforms[(int)ShaderId::Count][kMaxUniformFloats] = {};
     bool target_dirty = true;
 } S;
@@ -47,7 +48,8 @@ uint16_t begin_draw(Texture *tex, uint32_t nverts, uint32_t nindices, uint16_t *
 
     Cmd *last = F.cmds.empty() ? nullptr : &F.cmds.back();
     bool merge = last && last->type == CmdType::Draw && last->shader == S.shader &&
-                 last->texture == tex && last->vertex_count + nverts <= 65535;
+                 last->texture == tex && last->aux[0] == S.aux[0] && last->aux[1] == S.aux[1] &&
+                 last->vertex_count + nverts <= 65535;
     if (merge && S.shader != ShaderId::Default)
         merge = std::memcmp(&F.uniforms[last->uniforms], u, si.block_floats * sizeof(float)) == 0;
 
@@ -56,6 +58,8 @@ uint16_t begin_draw(Texture *tex, uint32_t nverts, uint32_t nindices, uint16_t *
         c.type = CmdType::Draw;
         c.shader = S.shader;
         c.texture = tex;
+        c.aux[0] = S.aux[0];
+        c.aux[1] = S.aux[1];
         c.uniforms = (uint32_t)F.uniforms.size();
         F.uniforms.insert(F.uniforms.end(), u, u + si.block_floats);
         c.first_vertex = (uint32_t)F.vertices.size();
@@ -284,6 +288,7 @@ void set_shader(ShaderId id) {
     S.shader = id;
 }
 ShaderId current_shader() { return S.shader; }
+void set_aux_texture(int slot, Texture *t) { S.aux[slot] = t; }
 
 void send(ShaderId id, const char *name, const float *v, int n) {
     const ShaderInfo &si = shader_info(id);

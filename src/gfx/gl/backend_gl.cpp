@@ -131,6 +131,8 @@ void build_program(Program &P, ShaderId id, const std::string &body, const char 
     P.loc_screen = glGetUniformLocation(P.prog, "love_ScreenSize");
     glUseProgram(P.prog);
     glUniform1i(glGetUniformLocation(P.prog, "MainTex"), 0);
+    glUniform1i(glGetUniformLocation(P.prog, "vl_Aux1"), 1);
+    glUniform1i(glGetUniformLocation(P.prog, "vl_Aux2"), 2);
     if (id != ShaderId::Count) {
         const ShaderInfo &si = shader_info(id);
         for (int i = 0; i < si.uniform_count; i++)
@@ -308,6 +310,12 @@ void backend_submit(const FrameData &f) {
         const Texture *t = c.texture;
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, ((GLTex *)t->impl)->id);
+        for (int a = 0; a < 2; a++)
+            if (c.aux[a]) {
+                glActiveTexture(GL_TEXTURE1 + a);
+                glBindTexture(GL_TEXTURE_2D, ((GLTex *)c.aux[a]->impl)->id);
+                glActiveTexture(GL_TEXTURE0);
+            }
         const ShaderInfo &si = shader_info(c.shader);
         const float *u = &f.uniforms[c.uniforms];
         if (!P.cache_valid || std::memcmp(P.cache, u, si.block_floats * sizeof(float)) != 0) {

@@ -25,6 +25,7 @@ constexpr int kMaxPendingSwaps = 2;
 constexpr int kFrameArenas = 3;
 constexpr size_t kArenaVertexBytes = 4 * 1024 * 1024;
 constexpr size_t kArenaIndexBytes = 1 * 1024 * 1024;
+constexpr int kTexRowAlign = 16;
 
 #define ALIGN(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 
@@ -106,6 +107,7 @@ struct ProgramParams {
     const SceGxmProgramParameter *u_vert[16];  // per uniform desc, vertex stage
     const SceGxmProgramParameter *u_frag[16];  // per uniform desc, fragment stage
     const SceGxmProgramParameter *proj, *screen_v, *screen_f, *clear;
+    int tex_unit, aux_unit[2];  // sampler resource indices, -1 if unused
 };
 
 struct Program {
@@ -217,6 +219,13 @@ void build_program(Program &P, const char *vname, const char *fname, ShaderId id
     P.p.screen_v = sceGxmProgramFindParameterByName(vg, "love_ScreenSize");
     P.p.screen_f = sceGxmProgramFindParameterByName(fg, "love_ScreenSize");
     P.p.clear = sceGxmProgramFindParameterByName(fg, "vl_Clear");
+    auto sampler = [&](const char *n) {
+        const SceGxmProgramParameter *s = sceGxmProgramFindParameterByName(fg, n);
+        return s ? (int)sceGxmProgramParameterGetResourceIndex(s) : -1;
+    };
+    P.p.tex_unit = sampler("MainTex");
+    P.p.aux_unit[0] = sampler("vl_Aux1");
+    P.p.aux_unit[1] = sampler("vl_Aux2");
     if (id != ShaderId::Count) {
         const ShaderInfo &si = shader_info(id);
         for (int i = 0; i < si.uniform_count && i < 16; i++) {
@@ -337,7 +346,8 @@ int backend_screen_height() { return kH; }
 
 void backend_create_texture(Texture *t, const TextureDesc &d) {
     GxmTex *g = new GxmTex();
-    // Linear layout: every level has its stride aligned to 8 texels, levels packed back to back.
+    // Linear layout: every level's rows are aligned to kTexRowAlign texels, levels packed back
+    // to back. 16 matches the layout the hardware read on device (8 garbled NPOT atlases).
     int levels = 1;
     if (d.mipmaps) {
         int w = d.width, h = d.height;
@@ -347,7 +357,7 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     {
         int w = d.width, h = d.height;
         for (int l = 0; l < levels; l++) {
-            total += (size_t)ALIGN(w, 8) * h * 4;
+            total += (size_t)ALIGN(w, kTexRowAlign) * h * 4;
             w = w > 1 ? w / 2 : 1;
             h = h > 1 ? h / 2 : 1;
         }
@@ -364,15 +374,15 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     // level 0
     int w = d.width, h = d.height;
     uint8_t *dst = mem;
-    for (int y = 0; y < h; y++) std::memcpy(dst + (size_t)y * ALIGN(w, 8) * 4, d.rgba + (size_t)y * w * 4, (size_t)w * 4);
+    for (int y = 0; y < h; y++) std::memcpy(dst + (size_t)y * ALIGN(w, kTexRowAlign) * 4, d.rgba + (size_t)y * w * 4, (size_t)w * 4);
     // remaining levels: 2x2 box filter of the previous level (what glGenerateMipmap does)
     for (int l = 1; l < levels; l++) {
         const uint8_t *src = dst;
-        int sw = w, sh = h, sstride = ALIGN(sw, 8);
+        int sw = w, sh = h, sstride = ALIGN(sw, kTexRowAlign);
         dst += (size_t)sstride * sh * 4;
         w = w > 1 ? w / 2 : 1;
         h = h > 1 ? h / 2 : 1;
-        int dstride = ALIGN(w, 8);
+        int dstride = ALIGN(w, kTexRowAlign);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
                 int x0 = x * 2, y0 = y * 2;
@@ -408,7 +418,7 @@ void backend_destroy_texture(Texture *t) {
 
 void backend_create_canvas(Canvas *c) {
     GxmCanvas *g = new GxmCanvas();
-    int stride = ALIGN(c->w, 8);
+    int stride = ALIGN(c->w, 16);
     g->mem = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)4 * stride * c->h,
                        SCE_GXM_COLOR_SURFACE_ALIGNMENT,
                        SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE, &g->uid);
@@ -416,7 +426,8 @@ void backend_create_canvas(Canvas *c) {
                            SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
                            c->w, c->h, stride, g->mem);
     GxmTex *gt = new GxmTex();
-    sceGxmTextureInitLinear(&gt->tex, g->mem, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, c->w, c->h, 0);
+    sceGxmTextureInitLinearStrided(&gt->tex, g->mem, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, c->w, c->h,
+                                   stride * 4);
     sceGxmTextureSetMinFilter(&gt->tex, SCE_GXM_TEXTURE_FILTER_LINEAR);
     sceGxmTextureSetMagFilter(&gt->tex, SCE_GXM_TEXTURE_FILTER_LINEAR);
     sceGxmTextureSetUAddrMode(&gt->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
@@ -530,11 +541,17 @@ void backend_submit(const FrameData &f) {
             sceGxmSetVertexProgram(g_ctx, P.vp);
             sceGxmSetFragmentProgram(g_ctx, P.fp);
             cur = &P;
+            cur_tex = nullptr;
         }
-        if (c.texture != cur_tex) {
-            sceGxmSetFragmentTexture(g_ctx, 0, &((GxmTex *)c.texture->impl)->tex);
+        if (c.texture != cur_tex && P.p.tex_unit >= 0) {
+            sceGxmSetFragmentTexture(g_ctx, P.p.tex_unit, &((GxmTex *)c.texture->impl)->tex);
             cur_tex = c.texture;
         }
+        for (int a = 0; a < 2; a++)
+            if (c.aux[a] && P.p.aux_unit[a] >= 0) {
+                sceGxmSetFragmentTexture(g_ctx, P.p.aux_unit[a], &((GxmTex *)c.aux[a]->impl)->tex);
+                cur_tex = nullptr;  // unit numbering differs per program
+            }
         const ShaderInfo &si = shader_info(c.shader);
         const float *u = &f.uniforms[c.uniforms];
         void *vub, *fub;

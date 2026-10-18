@@ -39,6 +39,12 @@ const UniformDesc u_splash[] = {
     {"time", 0, 1}, {"vort_speed", 1, 1}, {"mid_flash", 2, 1}, {"vort_offset", 3, 1},
     {"colour_1", 4, 4}, {"colour_2", 8, 4}};
 const UniformDesc u_gold_seal[] = {{"gold_seal", 0, 4}};
+const UniformDesc u_bg_field[] = {{"time", 0, 1}, {"spin_time", 1, 1}, {"spin_amount", 2, 1},
+                                   {"k", 3, 1}, {"screen", 4, 2}, {"pixel_size", 6, 1}};
+const UniformDesc u_bg_color[] = {{"k", 0, 1}, {"contrast", 1, 1}, {"spin_amount", 2, 1},
+                                   {"field_size", 4, 2}, {"colour_1", 8, 4}, {"colour_2", 12, 4},
+                                   {"colour_3", 16, 4}};
+const UniformDesc u_bg_final[] = {{"pixel_size", 0, 1}, {"blocks", 2, 2}};
 const UniformDesc u_skew[] = {{"hovering", 0, 1}, {"screen_scale", 1, 1}, {"mouse_screen_pos", 2, 2}};
 
 #define N(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
@@ -63,6 +69,10 @@ const ShaderInfo kShaders[(int)ShaderId::Count] = {
     {"splash", u_splash, N(u_splash), 12, false},
     {"gold_seal", u_gold_seal, N(u_gold_seal), 4, false},
     {"skew", u_skew, N(u_skew), 4, true},
+    {"vl_bg_field", u_bg_field, N(u_bg_field), 8, false},
+    {"vl_bg_color", u_bg_color, N(u_bg_color), 20, false},
+    {"vl_bg_final", u_bg_final, N(u_bg_final), 4, false},
+    {"vl_crt_fast", u_crt, N(u_crt), 16, true},  // same uniforms as CRT.fs
 };
 #undef N
 

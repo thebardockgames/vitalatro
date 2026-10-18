@@ -53,6 +53,8 @@ void init() {
     scePowerSetBusClockFrequency(222);
     scePowerSetGpuClockFrequency(222);
     scePowerSetGpuXbarClockFrequency(166);
+    log("clocks: arm %d bus %d gpu %d xbar %d", scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
+        scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
     sceIoMkdir("ux0:data", 0777);
