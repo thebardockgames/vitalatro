@@ -169,9 +169,20 @@ void draw_card(const Card &c, double t, bool fast, int editions) {
         }
     }
     if (c.edition != ShaderId::Default && editions) {
-        ShaderId ed = editions == 2 ? ShaderId::PolychromeFast : ShaderId::Polychrome;
+        ShaderId ed = editions == 2 ? ShaderId::VlPolychrome : ShaderId::Polychrome;
         float e[2] = {(float)std::fmod(t / 28.0, 100.0), (float)t};
         send(ed, "polychrome", e, 2);
+        if (ed == ShaderId::VlPolychrome) {
+            // per-draw terms of polychrome.fs that only depend on uniforms
+            float time_u = std::fmod(123.33412f * (c.id / 1.14212f), 3000.0f);
+            float pt = e[1] * 2.221f + time_u;
+            float a[4] = {50 * std::sin(-pt / 143.6340f), 50 * std::cos(-pt / 99.4324f),
+                          50 * std::cos(pt / 53.1532f), 50 * std::cos(pt / 61.4532f)};
+            float b[4] = {50 * std::sin(-pt / 87.53218f), 50 * std::sin(-pt / 49.0f), e[0] * 2.612f - 0.5f * 3.14f,
+                          e[1] * 0.04f};
+            send(ed, "vl_poly_a", a, 4);
+            send(ed, "vl_poly_b", b, 4);
+        }
         card_shader(ed, *c.center, c.cx, c.cy, c.id, false);
         sprite_draw_self(*c.center, c.cx, c.cy, c.vt);
     }
@@ -209,14 +220,31 @@ const VT kBgSprite{-30 + 0.8f, -6 + 0.4f, 21 + 60, 11.2f + 12, 0, 1};
 
 float pixel_size;  // background.fs: length(love_ScreenSize.xy) / PIXEL_SIZE_FAC
 int nbx, nby;      // number of background blocks
-Canvas *bg_field[5];  // per k
+Canvas *bg_field[5];      // per k
+Texture *bg_polar[5];     // per k: block polar coordinates for the field pass
 Canvas *bg_color;
+int frame_no;
 
-void draw_canvas_stretched(Texture *src, int w, int h) {
-    float sw, sh;
-    texture_dimensions(src, sw, sh);
-    draw(src, 0, 0, 0, w / sw, h / sh);
+// Polar coordinates (radius, angle) around the swirl centre of the block each field texel stands
+// for, exactly as background.fs computes them before its swirl, as 16-bit fixed point.
+Texture *build_polar(int k, int fw, int fh) {
+    std::vector<uint8_t> px((size_t)fw * fh * 4);
+    double diag = std::sqrt((double)SW * SW + (double)SH * SH);
+    for (int y = 0; y < fh; y++)
+        for (int x = 0; x < fw; x++) {
+            float bx = (float)((x - 1) * k) * pixel_size, by = (float)((y - 1) * k) * pixel_size;
+            float ux = (float)((bx - 0.5 * SW) / diag) - 0.12f, uy = (float)((by - 0.5 * SH) / diag);
+            float r = std::sqrt(ux * ux + uy * uy), a = std::atan2(uy, ux);
+            uint32_t er = (uint32_t)std::lround(std::fmin(r, 1.0f) * 65535);
+            uint32_t ea = (uint32_t)std::lround((a + 3.1415927f) / 6.2831853f * 65535);
+            uint8_t *o = &px[((size_t)y * fw + x) * 4];
+            o[0] = er >> 8; o[1] = er & 255; o[2] = ea >> 8; o[3] = ea & 255;
+        }
+    TextureDesc d{fw, fh, px.data()};
+    d.filter = Filter::Nearest;
+    return create_texture(d);
 }
+
 
 void background_original(double t) {
     send(ShaderId::Background, "time", (float)t);
@@ -234,22 +262,21 @@ void background_original(double t) {
 // Three passes: paint field every k blocks (RGBA16F) -> per-block colour, sampling the field with
 // hardware bilinear filtering -> expand blocks to pixels with nearest filtering. No pass does a
 // dependent texture read.
-void background_blocks(double t, int k) {
+void background_blocks(double t, int k, int field_every) {
     Canvas *field = bg_field[k];
     Texture *ft = canvas_texture(field);
     float fw, fh;
     texture_dimensions(ft, fw, fh);
 
-    set_canvas(field);
-    send(ShaderId::BgField, "time", (float)t);
-    send(ShaderId::BgField, "spin_time", 0.0f);
-    send(ShaderId::BgField, "spin_amount", 0.0f);
-    send(ShaderId::BgField, "k", (float)k);
-    send(ShaderId::BgField, "screen", (float)SW, (float)SH);
-    send(ShaderId::BgField, "pixel_size", pixel_size);
-    set_shader(ShaderId::BgField);
-    set_color({1, 1, 1, 1});
-    draw_canvas_stretched(a_ui.tex, (int)fw, (int)fh);  // texture unused by the field shader
+    if (frame_no % field_every == 0) {
+        set_canvas(field);
+        send(ShaderId::BgField, "time", (float)t);
+        send(ShaderId::BgField, "spin_time", 0.0f);
+        send(ShaderId::BgField, "spin_amount", 0.0f);
+        set_shader(ShaderId::BgField);
+        set_color({1, 1, 1, 1});
+        draw(bg_polar[k], 0, 0);
+    }
 
     // block b's colour pixel centre (b + 0.5) must sample field texel coordinate b/k + 1.5
     set_canvas(bg_color);
@@ -270,9 +297,37 @@ void background_blocks(double t, int k) {
 }
 
 // ------------------------------------------------------------------ CRT
+float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 const float kCrt = 70 * 0.3f;  // G.SETTINGS.GRAPHICS.crt default (70) * 0.3 as sent in Game:draw
 
 // Game:draw() CRT uniforms; the fast variant takes the same ones.
+Texture *crt_lut_f, *crt_lut_g;
+
+// CRT.fs scanline terms, 2*pi-periodic in their argument: f(a) for tc.y*scanlines, g(a) for
+// tc.x*scanlines*4 (rgb_scanline = clamp(-0.3 + f - g, -1, 2)).
+void build_crt_luts() {
+    const int n = 256;
+    std::vector<uint8_t> f(n * 4), g(n * 4);
+    auto q = [](float v) { return (uint8_t)std::lround(clampf(v, 0, 1) * 255); };
+    for (int i = 0; i < n; i++) {
+        float a = (i + 0.5f) / n * 6.2831853f;
+        f[i * 4 + 0] = q((2 * std::sin(a - 3.14f / 4) + 2) / 4);
+        f[i * 4 + 1] = q((2 * std::cos(a) + 2) / 4);
+        f[i * 4 + 2] = q((2 * std::cos(a - 3.14f / 3) + 2) / 4);
+        f[i * 4 + 3] = 255;
+        g[i * 4 + 0] = q(clampf(std::sin(a), 0.4f, 1));
+        g[i * 4 + 1] = q(clampf(std::cos(a), 0, 1));
+        g[i * 4 + 2] = q(clampf(std::cos(a - 3.14f / 4), 0, 1));
+        g[i * 4 + 3] = 255;
+    }
+    TextureDesc df{n, 1, f.data()};
+    df.repeat = true;
+    crt_lut_f = create_texture(df);
+    TextureDesc dg{n, 1, g.data()};
+    dg.repeat = true;
+    crt_lut_g = create_texture(dg);
+}
+
 void crt_uniforms(ShaderId id, double t) {
     float df[2] = {1.0f + 0.07f * kCrt / 100, 1.0f + 0.1f * kCrt / 100};
     float sf[2] = {1.0f - 0.008f * kCrt / 100, 1.0f - 0.008f * kCrt / 100};
@@ -298,25 +353,25 @@ struct Config {
     const char *name;
     Bg bg;
     int k;
+    int field_every;     // recompute the background field every N frames
     bool cards, fast_cards, ui;
     Crt crt;
-    int crt_mode;        // vl_crt_fast diagnostics: 0 full, 1 no scanlines, 2 no chroma either
-    int editions;        // 0 none, 1 original polychrome, 2 fast-trig polychrome
+    int editions;        // 0 none, 1 original polychrome.fs, 2 vl_polychrome
 };
 const Config kConfigs[] = {
-    {"original", BG_ORIG, 0, true, false, true, CRT_ORIG, 0, 1},
-    {"opt k=1", BG_BLOCKS, 1, true, true, true, CRT_FAST, 0, 2},
-    {"opt k=2", BG_BLOCKS, 2, true, true, true, CRT_FAST, 0, 2},
-    {"opt k=3", BG_BLOCKS, 3, true, true, true, CRT_FAST, 0, 2},
-    {"k=2 crt noscan", BG_BLOCKS, 2, true, true, true, CRT_FAST, 1, 2},
-    {"k=2 crt 1tap", BG_BLOCKS, 2, true, true, true, CRT_FAST, 2, 2},
-    {"bg k=2 only", BG_BLOCKS, 2, false, false, false, CRT_NONE, 0, 0},
-    {"crt only", BG_NONE, 0, false, false, false, CRT_FAST, 0, 0},
-    {"cards ed orig", BG_NONE, 0, true, true, false, CRT_NONE, 0, 1},
-    {"cards ed fast", BG_NONE, 0, true, true, false, CRT_NONE, 0, 2},
-    {"cards no ed", BG_NONE, 0, true, true, false, CRT_NONE, 0, 0},
-    {"ui only", BG_NONE, 0, false, false, true, CRT_NONE, 0, 0},
-    {"clear only", BG_NONE, 0, false, false, false, CRT_NONE, 0, 0},
+    {"original", BG_ORIG, 0, 1, true, false, true, CRT_ORIG, 1},
+    {"opt k=1", BG_BLOCKS, 1, 1, true, true, true, CRT_FAST, 2},
+    {"opt k=2", BG_BLOCKS, 2, 1, true, true, true, CRT_FAST, 2},
+    {"opt k=3", BG_BLOCKS, 3, 1, true, true, true, CRT_FAST, 2},
+    {"opt k=1 30Hz", BG_BLOCKS, 1, 2, true, true, true, CRT_FAST, 2},
+    {"opt k=2 30Hz", BG_BLOCKS, 2, 2, true, true, true, CRT_FAST, 2},
+    {"bg k=1 only", BG_BLOCKS, 1, 1, false, false, false, CRT_NONE, 0},
+    {"bg k=2 only", BG_BLOCKS, 2, 1, false, false, false, CRT_NONE, 0},
+    {"crt only", BG_NONE, 0, 1, false, false, false, CRT_FAST, 0},
+    {"cards ed opt", BG_NONE, 0, 1, true, true, false, CRT_NONE, 2},
+    {"cards no ed", BG_NONE, 0, 1, true, true, false, CRT_NONE, 0},
+    {"ui only", BG_NONE, 0, 1, false, false, true, CRT_NONE, 0},
+    {"clear only", BG_NONE, 0, 1, false, false, false, CRT_NONE, 0},
 };
 constexpr int kConfigCount = sizeof(kConfigs) / sizeof(kConfigs[0]);
 constexpr int kFramesPerConfig = 150;
@@ -333,10 +388,11 @@ int shown_config = 2;
 
 
 void render(const Config &cfg, double t) {
+    frame_no++;
     set_canvas(canvas);
-    clear({0, 0, 0, 1});
+    if (cfg.bg == BG_NONE) clear({0, 0, 0, 1});  // the background covers the whole canvas
     if (cfg.bg == BG_ORIG) background_original(t);
-    if (cfg.bg == BG_BLOCKS) background_blocks(t, cfg.k);
+    if (cfg.bg == BG_BLOCKS) background_blocks(t, cfg.k, cfg.field_every);
     set_canvas(canvas);
     if (cfg.ui) {
         // HUD column + panels similar to the in-run layout
@@ -349,15 +405,20 @@ void render(const Config &cfg, double t) {
         for (const Card &c : cards) draw_card(c, t, cfg.fast_cards, cfg.editions);
 
     set_canvas(nullptr);
-    clear({0, 0, 0, 1});
     set_color({1, 1, 1, 1});
-    if (cfg.crt == CRT_ORIG) crt_uniforms(ShaderId::CRT, t);
     if (cfg.crt == CRT_FAST) {
-        send(ShaderId::CrtFast, "vl_mode", (float)cfg.crt_mode);
+        // writes final pixels without blending: no backbuffer clear needed
+        set_aux_texture(0, crt_lut_f);
+        set_aux_texture(1, crt_lut_g);
         crt_uniforms(ShaderId::CrtFast, t);
+    } else {
+        clear({0, 0, 0, 1});
+        if (cfg.crt == CRT_ORIG) crt_uniforms(ShaderId::CRT, t);
     }
     draw(canvas, 0, 0);
     set_shader(ShaderId::Default);
+    set_aux_texture(0, nullptr);
+    set_aux_texture(1, nullptr);
 }
 
 }  // namespace
@@ -375,7 +436,12 @@ void init() {
     nby = (int)std::ceil(SH / pixel_size);
     bg_color = create_canvas(nbx, nby, CanvasFormat::RGBA8, Filter::Nearest);
     for (int k = 1; k <= 4; k++)
-        bg_field[k] = create_canvas((nbx + k - 1) / k + 3, (nby + k - 1) / k + 3, CanvasFormat::RGBA16F);
+    {
+        int fw = (nbx + k - 1) / k + 3, fh = (nby + k - 1) / k + 3;
+        bg_field[k] = create_canvas(fw, fh, CanvasFormat::RGBA16F);
+        bg_polar[k] = build_polar(k, fw, fh);
+    }
+    build_crt_luts();
     load_font();
 
     const float cw = 2.4f * 35 / 41, ch = 2.4f * 47 / 41;

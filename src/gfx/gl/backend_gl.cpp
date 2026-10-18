@@ -234,8 +234,9 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    GLenum wrap = d.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
     t->mip_levels = d.mipmaps ? 2 : 1;
     t->impl = gt;
 }
@@ -308,6 +309,7 @@ void backend_submit(const FrameData &f) {
         }
         Program &P = g_progs[(int)c.shader];
         glUseProgram(P.prog);
+        if (shader_info(c.shader).blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
         glUniformMatrix4fv(P.loc_proj, 1, GL_FALSE, proj);
         glUniform4fv(P.loc_screen, 1, screen);
         const Texture *t = c.texture;

@@ -42,7 +42,7 @@ def gather_shaders(game_shaders, tmp):
 
 
 # Edition shaders whose sin/cos are swapped for vl_fsin/vl_fcos (|error| < 0.001).
-FAST_TRIG_SHADERS = ['polychrome']
+FAST_TRIG_SHADERS = []
 FAST_TRIG_FUNCS = """
 number vl_fsin(number x) { number t = fract(x * 0.15915494 + 0.5) * 2.0 - 1.0; number y = 4.0 * t * (1.0 - abs(t)); return 0.225 * (y * abs(y) - y) + y; }
 number vl_fcos(number x) { return vl_fsin(x + 1.5707963); }

@@ -17,7 +17,7 @@ enum class ShaderId : uint8_t {
     Background, CRT, Dissolve, Foil, Holo, Polychrome, Negative, NegativeShine,
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
     // Vitalatro's own programs (shaders/internal)
-    BgField, BgColor, CrtFast, PolychromeFast,
+    BgField, BgColor, CrtFast, VlPolychrome,
     Count
 };
 
@@ -34,6 +34,7 @@ struct ShaderInfo {
     uint8_t block_floats;  // total floats in the block
     bool custom_vertex;    // has the 'hovering' tilt position() function
     bool f16_target = false;  // renders into an RGBA16F canvas (no blending)
+    bool blend = true;        // false: writes replace the target (love 'replace' blend)
 };
 const ShaderInfo &shader_info(ShaderId id);
 constexpr int kMaxUniformFloats = 48;
@@ -50,6 +51,7 @@ struct TextureDesc {
     const uint8_t *rgba;          // width*height*4
     bool mipmaps = false;
     Filter filter = Filter::Linear;
+    bool repeat = false;          // wrap mode: repeat instead of clamp
     // When >1, the data is a 1x source of an atlas that is a nearest-neighbour upscale by this
     // factor (Balatro's 2x atlases are exactly that); it is expanded at load time.
     int virtual_scale = 1;

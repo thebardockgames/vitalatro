@@ -322,7 +322,7 @@ bool backend_init() {
         const ShaderInfo &si = shader_info((ShaderId)i);
         std::string v = si.custom_vertex ? std::string(si.name) + "_v" : std::string("default_v");
         std::string f = std::string(si.name) + "_f";
-        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, !si.f16_target, si.f16_target);
+        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, si.blend && !si.f16_target, si.f16_target);
     }
     build_program(g_clear, "default_v", "clear_f", ShaderId::Count, false);
 
@@ -404,8 +404,9 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
     sceGxmTextureSetMagFilter(&g->tex, f);
     sceGxmTextureSetMipFilter(&g->tex, d.mipmaps ? SCE_GXM_TEXTURE_MIP_FILTER_ENABLED
                                                  : SCE_GXM_TEXTURE_MIP_FILTER_DISABLED);
-    sceGxmTextureSetUAddrMode(&g->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
-    sceGxmTextureSetVAddrMode(&g->tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    SceGxmTextureAddrMode wrap = d.repeat ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP;
+    sceGxmTextureSetUAddrMode(&g->tex, wrap);
+    sceGxmTextureSetVAddrMode(&g->tex, wrap);
     t->mip_levels = levels;
     t->impl = g;
 }
