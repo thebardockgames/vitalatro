@@ -211,7 +211,10 @@ void Table::set(int i, Value v) {
 
 void Table::set(const Value &key, Value v) {
     int i;
-    if (as_array_index(key, i) && i <= (int)arr_.size() + 1) { set(i, std::move(v)); return; }
+    if (as_array_index(key, i) && (i <= (int)arr_.size() || (i == (int)arr_.size() + 1 && !v.is_nil()))) {
+        set(i, std::move(v));
+        return;
+    }
     if (key.is_nil()) return;
     int s = find_hash(key);
     if (s >= 0) {
@@ -267,8 +270,13 @@ TableRef T(std::initializer_list<std::pair<const char *, Value>> kv) {
 }
 
 TableRef A(std::initializer_list<Value> items) {
+    // like a Lua constructor {a, nil, b}: positional, so b stays at index 3
     TableRef t = new_table();
-    for (auto &v : items) t->push(v);
+    int i = 1;
+    for (auto &v : items) {
+        if (!v.is_nil()) t->set(i, v);
+        i++;
+    }
     return t;
 }
 

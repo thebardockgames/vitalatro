@@ -1,7 +1,11 @@
 #include "engine/font.h"
 
 #include <cmath>
+#include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <memory>
+#include <unordered_map>
 
 #include "platform/platform.h"
 #include "stb/stb_image.h"
@@ -26,10 +30,51 @@ template <class T> T rd(const std::string &d, size_t &p) {
 }
 }  // namespace
 
-Ref<Font> Font::load(const std::string &id) {
-    std::string d;
-    if (!platform::read_file(("fonts/" + id + ".fnt").c_str(), d) || d.size() < 8 || d.compare(0, 4, "VLFN") != 0)
+namespace {
+// A font file read and its pages decoded (no GPU work), ready to become a Font.
+struct DecodedFont {
+    std::string id;
+    std::string fnt;
+    std::vector<std::vector<uint8_t>> pages;
+    int page_w = 0, page_h = 0;
+};
+
+DecodedFont decode_font(const std::string &id) {
+    DecodedFont r;
+    r.id = id;
+    if (!platform::read_file(("fonts/" + id + ".fnt").c_str(), r.fnt) || r.fnt.size() < 8 || r.fnt.compare(0, 4, "VLFN") != 0)
         platform::fatal("missing font %s", id.c_str());
+    size_t p = 8 + 4 * 4;
+    uint32_t npages = rd<uint32_t>(r.fnt, p);
+    for (uint32_t i = 0; i < npages; i++) {
+        std::string png;
+        std::string path = "fonts/" + id + "_" + std::to_string(i) + ".png";
+        if (!platform::read_file(path.c_str(), png)) platform::fatal("missing %s", path.c_str());
+        int w, h, n;
+        unsigned char *px = stbi_load_from_memory((const unsigned char *)png.data(), (int)png.size(), &w, &h, &n, 1);
+        r.pages.emplace_back(px, px + (size_t)w * h);
+        r.page_w = w;
+        r.page_h = h;
+        stbi_image_free(px);
+    }
+    return r;
+}
+
+std::unordered_map<std::string, Ref<Font>> font_cache;
+
+struct Preload {
+    std::vector<std::string> ids;
+    std::vector<DecodedFont> decoded;  // filled by the worker, in ids order
+    std::vector<Ref<Font>> built;      // the worker also creates the textures when the backend allows it
+    std::atomic<int> ready{0};         // number of entries of decoded that are complete
+    int consumed = 0;                  // decoded fonts already turned into textures (main thread)
+};
+std::shared_ptr<Preload> preload;
+}  // namespace
+
+Ref<Font> Font::build(const DecodedFontRef &dref) {
+    const DecodedFont &df = *static_cast<const DecodedFont *>(dref);
+    const std::string &d = df.fnt;
     Ref<Font> f(new Font());
     size_t p = 8;
     f->size_ = rd<int32_t>(d, p);
@@ -39,15 +84,9 @@ Ref<Font> Font::load(const std::string &id) {
     uint32_t npages = rd<uint32_t>(d, p);
     uint32_t pw = rd<uint32_t>(d, p), ph = rd<uint32_t>(d, p);
     for (uint32_t i = 0; i < npages; i++) {
-        std::string png;
-        std::string path = "fonts/" + id + "_" + std::to_string(i) + ".png";
-        if (!platform::read_file(path.c_str(), png)) platform::fatal("missing %s", path.c_str());
-        int w, h, n;
-        unsigned char *px = stbi_load_from_memory((const unsigned char *)png.data(), (int)png.size(), &w, &h, &n, 1);
-        gfx::TextureDesc td{w, h, px};
+        gfx::TextureDesc td{df.page_w, df.page_h, df.pages[i].data()};
         td.alpha8 = true;  // LOVE's LA8 glyph data: white with coverage as alpha
         f->pages_.push_back(gfx::create_texture(td));
-        stbi_image_free(px);
     }
     uint32_t nglyphs = rd<uint32_t>(d, p);
     for (uint32_t i = 0; i < nglyphs; i++) {
@@ -82,6 +121,53 @@ Ref<Font> Font::load(const std::string &id) {
     auto it = f->glyphs_.find('?');
     f->missing_ = it != f->glyphs_.end() ? it->second : Glyph{};
     return f;
+}
+
+Ref<Font> Font::load(const std::string &id) {
+    auto it = font_cache.find(id);
+    if (it != font_cache.end()) return it->second;
+    // a font the preload already decoded is used from there; otherwise it is decoded right now
+    if (preload) {
+        int ready = preload->ready.load(std::memory_order_acquire);
+        for (int i = 0; i < ready; i++)
+            if (preload->decoded[i].id == id)
+                return font_cache[id] = preload->built[i] ? preload->built[i] : build(&preload->decoded[i]);
+    }
+    DecodedFont df = decode_font(id);
+    return font_cache[id] = build(&df);
+}
+
+void Font::preload_async(const std::vector<std::string> &ids) {
+    auto job = std::make_shared<Preload>();
+    for (const std::string &id : ids)
+        if (!font_cache.count(id) && std::find(job->ids.begin(), job->ids.end(), id) == job->ids.end()) job->ids.push_back(id);
+    job->decoded.resize(job->ids.size());
+    job->built.resize(job->ids.size());
+    preload = job;
+    const bool build_on_worker = gfx::create_texture_any_thread();
+    platform::run_async([job, build_on_worker] {
+        for (size_t i = 0; i < job->ids.size(); i++) {
+            job->decoded[i] = decode_font(job->ids[i]);
+            if (build_on_worker) {
+                job->built[i] = build(&job->decoded[i]);
+                job->decoded[i] = DecodedFont{job->decoded[i].id, {}, {}, 0, 0};
+            }
+            job->ready.store((int)i + 1, std::memory_order_release);
+        }
+    });
+}
+
+void Font::pump() {
+    if (!preload) return;
+    int ready = preload->ready.load(std::memory_order_acquire);
+    if (preload->consumed < ready) {
+        int i = preload->consumed++;
+        DecodedFont &df = preload->decoded[i];
+        if (!font_cache.count(df.id)) font_cache[df.id] = preload->built[i] ? preload->built[i] : build(&df);
+        df = DecodedFont{};  // free the decoded pages
+        preload->built[i] = nullptr;
+    }
+    if (preload->consumed == (int)preload->ids.size()) preload = nullptr;
 }
 
 const Font::Glyph &Font::glyph(uint32_t cp) const {

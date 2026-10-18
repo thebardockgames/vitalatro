@@ -80,13 +80,19 @@ dofile(game_dir .. '/game.lua')
 
 -- Run init_item_prototypes on a proxy; snapshot the raw literals at the moment the function
 -- starts building P_CENTER_POOLS (right after the literal definitions, before profile data).
-local raw = {}
+-- The literals are serialized right there (not copied first): a copy would be a different hash
+-- layout, and pairs() order must stay the one the game's own tables have.
+local raw_parts
 local store = {}
 local proxy = setmetatable({}, {
     __index = function(_, k) return store[k] end,
     __newindex = function(_, k, v)
-        if k == 'P_CENTER_POOLS' and not raw.P_CENTERS then
-            for name, val in pairs(store) do raw[name] = deep_copy(val) end
+        if k == 'P_CENTER_POOLS' and not raw_parts then
+            raw_parts = {}
+            for name, val in pairs(store) do
+                seen = {}
+                raw_parts[#raw_parts + 1] = key_str(name) .. '=' .. pack(val, name)
+            end
         end
         store[k] = v
     end,
@@ -95,7 +101,12 @@ store.save_progress = function() end
 G = {SETTINGS = {profile = 1}, FILES = {}}
 Game.init_item_prototypes(proxy)
 
-write('prototypes', raw)
+do
+    local f = assert(io.open(out_dir .. '/prototypes.lua', 'w'))
+    f:write('return {', table.concat(raw_parts, ','), '}\n')
+    f:close()
+    print('wrote prototypes')
+end
 -- pool order as built by the game for an empty profile (keys only)
 local pools = {}
 for name, list in pairs(store.P_CENTER_POOLS) do
@@ -103,6 +114,12 @@ for name, list in pairs(store.P_CENTER_POOLS) do
     for i, v in ipairs(list) do pools[name][i] = v.key end
 end
 write('pools_default', pools)
+
+-- ------------------------------------------------------------------ the fresh G.GAME table
+-- Game:init_game_object() only reads P_BLINDS and get_starting_params(), so its result is data.
+dofile(game_dir .. '/functions/misc_functions.lua')
+G.P_BLINDS = store.P_BLINDS
+write('game_object', Game.init_game_object(G))
 
 -- ------------------------------------------------------------------ globals (G.C etc.)
 dofile(game_dir .. '/globals.lua')  -- defines Game:set_globals and runs G = Game()

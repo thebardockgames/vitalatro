@@ -3,6 +3,8 @@
 
 #include <cmath>
 
+#include "core/math.h"
+
 #include "engine/controller.h"
 #include "game/g.h"
 #include "gfx/gfx.h"
@@ -93,7 +95,7 @@ bool Node::collides_with_point(XY point) {
     if (std::fabs(t->r) < 0.1f) {
         return p.x >= t->x - b && p.y >= t->y - b && p.x <= t->x + t->w + b && p.y <= t->y + t->h + b;
     }
-    float cs = std::cos(t->r + (float)M_PI / 2), sn = std::sin(t->r + (float)M_PI / 2);
+    float cs = std::cos(t->r + (float)PI / 2), sn = std::sin(t->r + (float)PI / 2);
     p.x = p.x - (t->x + 0.5f * t->w);
     p.y = p.y - (t->y + 0.5f * t->h);
     XY r{p.y * cs - p.x * sn, p.y * sn + p.x * cs};

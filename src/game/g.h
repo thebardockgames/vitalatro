@@ -5,7 +5,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/object.h"
 #include "core/value.h"
+#include "engine/font.h"
 #include "engine/node.h"
 
 namespace vl {
@@ -16,7 +18,9 @@ class Sprite;
 class UIBox;
 class Card;
 class CardArea;
-class Font;
+class Card;
+class Sprite;
+
 namespace gfx { struct Texture; }
 
 // Object lists that keep insertion order (Lua arrays + table.remove) with O(1) removal.
@@ -57,12 +61,17 @@ enum GameStage : int { MAIN_MENU = 1, RUN = 2, STAGE_SANDBOX = 3, ASYNC_LIMBO = 
 // G.UIT
 enum UIT : int { UIT_T = 1, UIT_B = 2, UIT_C = 3, UIT_R = 4, UIT_O = 5, UIT_ROOT = 7, UIT_S = 8, UIT_I = 9 };
 
-struct FontDef {  // G.FONTS entries
+struct FontDef : Object {  // G.FONTS entries (referenced from DynaText configs)
+    std::string id;  // baked font id; FONT is loaded on first use (CJK pages are large)
     Ref<Font> FONT;
+    Font *font() {
+        if (!FONT) FONT = Font::load(id);
+        return FONT.get();
+    }
     float render_scale, TEXT_HEIGHT_SCALE, FONTSCALE, squish, DESCSCALE;
     XY TEXT_OFFSET;
 };
-struct LangDef {  // G.LANGUAGES entries
+struct LangDef : Object {  // G.LANGUAGES entries (referenced from UI configs)
     std::string key, label, button;
     FontDef *font = nullptr;
     bool beta = false, omit = false;
@@ -77,12 +86,14 @@ struct Atlas {  // G.ASSET_ATLAS / G.ANIMATION_ATLAS entries
 };
 
 using UIFunc = std::function<void(UIElement *e)>;
+using TableFunc = std::function<void(const TableRef &args)>;  // G.FUNCS called with an args table
 
 struct Globals {
     // ---------------------------------------------------------------- feature flags (globals.lua)
     bool F_MOBILE = false, F_SOUND_THREAD = false, F_HIDE_BG = false, F_VIDEO_SETTINGS = false;
     bool F_QUIT_BUTTON = false, F_SKIP_TUTORIAL = false, F_ENGLISH_ONLY = false, F_GUIDE = false;
     bool F_CRASH_REPORTS = false, F_NO_ACHIEVEMENTS = false, F_EXTERNAL_LINKS = false;
+    bool F_PS4_PLAYSTATION_GLYPHS = true;  // Vita face buttons match the PS4 glyph row
     bool F_SWAP_AB_PIPS = false, F_SWAP_AB_BUTTONS = false, F_SWAP_XY_BUTTONS = false;
     double F_RUMBLE = 0;
     int F_SAVE_TIMER = 30;
@@ -117,9 +128,16 @@ struct Globals {
     bool STAGE_OBJECT_INTERRUPT = false;
     bool DEBUG = false;
     bool under_overlay = false;
+    bool FAST_SHADERS = false;  // Vitalatro's GPU-friendly shader variants (render::init)
     int REFRESH_FRAME_MAJOR_CACHE = 0;
+    bool REFRESH_ALERTS = false;
+    bool NO_MOD_CURSOR_STACK = false;
+    TableRef DISABLED_BUTTONS;  // tutorial: list of button names
+    double ROOM_jiggle = 0;     // G.ROOM.jiggle
+    double VIBRATION = 0, MOBILE_VIBRATION_QUEUE = 0;
 
     // ---------------------------------------------------------------- dynamic data
+    TableRef G_TABLE = new_table();  // ref_table for UI fields read from G itself (G.profile_display)
     TableRef SETTINGS, GAME, PROFILES, C, ARGS, P_CENTERS, P_CARDS, P_BLINDS, P_TAGS, P_SEALS, P_STAKES;
     TableRef localization;
 
@@ -128,31 +146,96 @@ struct Globals {
         ObjList<Node> NODE;
         ObjList<Moveable> MOVEABLE;
         ObjList<Moveable> SPRITE;
-        ObjList<UIBox> UIBOX;
-        ObjList<UIBox> POPUP;
+        ObjList<Node> UIBOX;
+        ObjList<Node> POPUP;
         ObjList<Moveable> CARD;
         ObjList<Moveable> CARDAREA;
-        ObjList<UIBox> ALERT;
+        ObjList<Node> ALERT;
     } I;
     ObjList<Moveable> MOVEABLES;
     ObjList<Moveable> ANIMATIONS;
-    std::vector<Node *> DRAW_HASH;
+    std::vector<NodeRef> DRAW_HASH;  // keeps drawn nodes alive until the next draw, like the Lua table
     ObjList<Node> STAGE_OBJECTS[5];
 
-    Ref<Moveable> ROOM, ROOM_ATTACH;
+    NodeRef ROOM;
+    Ref<Moveable> ROOM_ATTACH, CURSOR;
+    NodeRef screenwipe;
+    Ref<Moveable> screenwipecard;
     Controller *CONTROLLER = nullptr;
     EventManager *E_MANAGER = nullptr;
     Ref<Moveable> OVERLAY_MENU, OVERLAY_TUTORIAL;
 
     std::unordered_map<std::string, Atlas> ASSET_ATLAS, ANIMATION_ATLAS;
-    std::vector<FontDef> FONTS;
-    std::unordered_map<std::string, LangDef> LANGUAGES;
+    std::vector<Ref<FontDef>> FONTS;
+    std::unordered_map<std::string, Ref<LangDef>> LANGUAGES;
     LangDef *LANG = nullptr;
     std::unordered_map<std::string, UIFunc> FUNCS;
+    std::unordered_map<std::string, TableFunc> FUNCS_T;
 
     const float *BRUTE_OVERLAY = nullptr;
+    double vortex_time = 0;
+
+    // ---------------------------------------------------------------- game objects (game.lua)
+    TableRef P_CENTER_POOLS, P_JOKER_RARITY_POOLS, P_LOCKED, CHALLENGES, DISCOVER_TALLIES, PROGRESS, FILES, METRICS;
+    TableRef ACHIEVEMENTS, COLLABS;
+    Value j_locked, v_locked, c_locked, j_undiscovered, t_undiscovered, p_undiscovered, s_undiscovered, v_undiscovered,
+        booster_undiscovered, tag_undiscovered, b_undiscovered;
+    Ref<CardArea> hand, deck, jokers, consumeables, play, discard, shop_jokers, shop_vouchers, shop_booster, pack_cards,
+        title_top;
+    std::vector<Ref<Card>> playing_cards;
+    bool has_playing_cards = false;  // G.playing_cards ~= nil
+    Ref<Sprite> shared_debuff, shared_soul, shared_undiscovered_joker, shared_undiscovered_tarot, shared_sticker_eternal,
+        shared_sticker_perishable, shared_sticker_rental;
+    std::unordered_map<std::string, Ref<Sprite>> shared_stickers, shared_seals;
+    std::vector<std::string> sticker_map;
+    Ref<Sprite> SPLASH_BACK, SPLASH_FRONT, SPLASH_LOGO;
+    NodeRef MAIN_MENU_UI, buttons, deck_preview, shop, blind_select, booster_pack, GAME_OVER_UI, collection_alert, HUD,
+        HUD_blind, debug_tools, online_leaderboard, achievement_notification, boss_warning_text;
+    int sort_id = 0;
+    double last_materialized = 0;
+    bool has_last_materialized = false;
+    bool VIEWING_DECK = false;
+    int TAROT_INTERRUPT = 0;
+    bool screenglitch = false;
+    double screenwipe_amt = 1;
+    bool has_screenwipe_amt = false;
+    std::string VERSION;
+    gfx::Canvas *CANVAS = nullptr;
+    struct {
+        float orig_scale = 0, w = 0, h = 0, orig_ratio = 0;
+    } window_prev;
+    XY ROOM_ORIG;
+    struct {
+        float x = 0, y = 0, w = 0, h = 0, real_window_w = 0, real_window_h = 0;
+    } WINDOWTRANS;
+    struct {
+        double x = 0, y = 0, sx = 0, sy = 0;
+        bool set = false;
+    } eased_cursor_pos;  // G.ARGS.eased_cursor_pos
+    double JIGGLE_VIBRATION = 0, CURR_VIBRATION = 0;
+    NodeRef PROFILE_BUTTON;
+    std::unordered_map<std::string, NodeRef> alert_uiboxes;  // G[v.alert_uibox_name]
+    TableRef FILE_HANDLER, SAVE_HANDLER;
 
     // ---------------------------------------------------------------- helpers
+    // game.lua (Game methods)
+    void start_up();
+    void delete_run();
+    void main_menu(std::string_view change_context = {});
+    void splash_screen();
+    void prep_stage(int new_stage, int new_state, bool new_game_obj);
+    TableRef init_game_object();
+    void init_item_prototypes();
+    void load_profile(int profile);
+    void set_language();
+    void set_render_settings();
+    void save_progress();
+    void save_notify(const Value &card);
+    void save_settings();
+    void refresh();
+    void update(double dt);
+    void draw();
+
     bool paused() const;
     bool reduced_motion() const;
     bool shadows_on() const;

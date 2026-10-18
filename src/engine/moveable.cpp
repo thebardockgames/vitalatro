@@ -1,7 +1,10 @@
 // engine/moveable.lua
 #include <cmath>
 
+#include "core/math.h"
+
 #include "engine/node.h"
+#include "engine/controller.h"
 #include "engine/random.h"
 #include "game/g.h"
 #include "gfx/gfx.h"
@@ -30,6 +33,8 @@ void Moveable::init(const Args &args) {
     shadow_parrallax_store = {0, -1.5f};
     shadow_parrallax = &shadow_parrallax_store;
     layered_parallax = {};
+    layered_parallax_of = nullptr;
+    layered_parallax_nil = false;
     shadow_height = 0.2f;
     calculate_parrallax();
     G.MOVEABLES.add(this);
@@ -109,7 +114,7 @@ void Moveable::hard_set_VT() {
 void Moveable::drag(const XY *off) {
     if (states.drag.can || off) {
         float s = G.TILESCALE * G.TILESIZE;
-        XY p{G.CONTROLLER_cursor_x() / s, G.CONTROLLER_cursor_y() / s};
+        XY p{G.CONTROLLER->cursor_position.x / s, G.CONTROLLER->cursor_position.y / s};
         Transform &c = *container->T;
         point_translate(p, {-c.w / 2, -c.h / 2});
         point_rotate(p, c.r);
@@ -322,8 +327,8 @@ MajorInfo Moveable::get_major() {
         if (!frame_major_valid || G.REFRESH_FRAME_MAJOR_CACHE) {
             MajorInfo m = role.major->get_major();
             frame_major.major = m.major;
-            frame_major.offset = {m.offset.x + role.offset.x + layered_parallax.x,
-                                  m.offset.y + role.offset.y + layered_parallax.y};
+            const XY *l = lp();
+            frame_major.offset = {m.offset.x + role.offset.x + (l ? l->x : 0), m.offset.y + role.offset.y + (l ? l->y : 0)};
             frame_major_valid = true;
         }
         return frame_major;
@@ -346,7 +351,7 @@ void point_translate(XY &p, const XY &d) {
 }
 
 void point_rotate(XY &p, float angle) {
-    float cs = std::cos(angle + (float)M_PI / 2), sn = std::sin(angle + (float)M_PI / 2);
+    float cs = std::cos(angle + (float)PI / 2), sn = std::sin(angle + (float)PI / 2);
     float ox = p.x, oy = p.y;
     p.x = -oy * cs + ox * sn;
     p.y = oy * sn + ox * cs;
@@ -356,10 +361,13 @@ void point_rotate(XY &p, float angle) {
 void prep_draw(Moveable *m, float scale, float rotate, const XY *off, bool force_rotate) {
     gfx::push();
     gfx::scale(G.TILESCALE * G.TILESIZE);
-    float lpx = 0, lpy = 0;
     // (moveable.layered_parallax and .x) or (parent.layered_parallax and .x) or 0
-    lpx = m->layered_parallax.x;
-    lpy = m->layered_parallax.y;
+    const XY *l = m->lp();
+    if (!l) {
+        const Moveable *pm = dynamic_cast<const Moveable *>(m->parent);
+        l = pm ? pm->lp() : nullptr;
+    }
+    float lpx = l ? l->x : 0, lpy = l ? l->y : 0;
     gfx::translate(m->VT.x + m->VT.w / 2 + (off ? off->x : 0) + lpx, m->VT.y + m->VT.h / 2 + (off ? off->y : 0) + lpy);
     if (m->VT.r != 0 || m->has_juice || force_rotate) gfx::rotate(m->VT.r + rotate);
     gfx::translate(-scale * m->VT.w * m->VT.scale / 2, -scale * m->VT.h * m->VT.scale / 2);
@@ -367,7 +375,7 @@ void prep_draw(Moveable *m, float scale, float rotate, const XY *off, bool force
 }
 
 void add_to_drawhash(Node *n) {
-    if (n) G.DRAW_HASH.push_back(n);
+    if (n) G.DRAW_HASH.push_back(NodeRef(n));
 }
 
 }  // namespace vl

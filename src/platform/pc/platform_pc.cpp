@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #include "core/time.h"
 #include "platform/platform.h"
@@ -69,7 +70,66 @@ void fatal(const char *fmt, ...) {
     std::exit(1);
 }
 
-void poll_input(Input &in) { in = Input{}; }
+// Scripted input for the headless runner: VL_INPUT="1200:cross 1260:down 1300:touch:480:300"
+// presses a button (or touches a point) for 6 frames starting at the given frame.
+namespace {
+struct ScriptEvent {
+    int frame;
+    uint32_t button;
+    bool touch;
+    float x, y;
+};
+std::vector<ScriptEvent> script;
+bool script_loaded = false;
+int frame_counter = 0;
+
+void load_script() {
+    script_loaded = true;
+    const char *e = std::getenv("VL_INPUT");
+    if (!e) return;
+    std::istringstream ss(e);
+    std::string tok;
+    static const std::pair<const char *, uint32_t> names[] = {
+        {"up", BTN_UP},       {"down", BTN_DOWN},       {"left", BTN_LEFT},         {"right", BTN_RIGHT}, {"cross", BTN_CROSS},
+        {"circle", BTN_CIRCLE}, {"square", BTN_SQUARE}, {"triangle", BTN_TRIANGLE}, {"l", BTN_L},         {"r", BTN_R},
+        {"start", BTN_START}, {"select", BTN_SELECT}};
+    while (ss >> tok) {
+        ScriptEvent ev{};
+        size_t c1 = tok.find(':');
+        if (c1 == std::string::npos) continue;
+        ev.frame = std::atoi(tok.substr(0, c1).c_str());
+        std::string rest = tok.substr(c1 + 1);
+        if (rest.compare(0, 6, "touch:") == 0) {
+            ev.touch = true;
+            std::sscanf(rest.c_str() + 6, "%f:%f", &ev.x, &ev.y);
+        } else {
+            for (auto &n : names)
+                if (rest == n.first) ev.button = n.second;
+        }
+        script.push_back(ev);
+    }
+}
+}  // namespace
+
+void poll_input(Input &in) {
+    in = Input{};
+    if (!script_loaded) load_script();
+    frame_counter++;
+    for (const ScriptEvent &ev : script) {
+        if (frame_counter < ev.frame || frame_counter >= ev.frame + 6) continue;
+        if (ev.touch) {
+            in.touching = true;
+            in.touch_x = ev.x;
+            in.touch_y = ev.y;
+        } else {
+            in.buttons |= ev.button;
+        }
+    }
+}
+
+void run_async(std::function<void()> job) { std::thread(std::move(job)).detach(); }
+
+void free_memory_mb(int &user, int &cdram) { user = cdram = -1; }
 
 }  // namespace platform
 }  // namespace vl

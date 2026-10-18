@@ -205,6 +205,8 @@ Texture *create_texture(const TextureDesc &desc) {
     return t;
 }
 
+bool create_texture_any_thread() { return backend_texture_thread_safe(); }
+
 void destroy_texture(Texture *t) {
     if (!t) return;
     backend_destroy_texture(t);
@@ -373,5 +375,17 @@ void draw_glyph_quads(Texture *t, const GlyphVertex *gv, int quad_count) {
 }
 
 const FrameStats &last_frame_stats() { return stats_last; }
+
+uint16_t float_to_half(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    uint32_t sign = (x >> 16) & 0x8000, mant = x & 0x7fffff;
+    int exp = (int)((x >> 23) & 0xff) - 127 + 15;
+    if (exp <= 0) return (uint16_t)sign;
+    if (exp >= 31) return (uint16_t)(sign | 0x7c00);
+    uint32_t h = sign | ((uint32_t)exp << 10) | (mant >> 13);
+    if (mant & 0x1000) h++;
+    return (uint16_t)h;
+}
 
 }  // namespace vl::gfx

@@ -220,6 +220,8 @@ void backend_set_vsync(bool) {}
 int backend_screen_width() { return g_w; }
 int backend_screen_height() { return g_h; }
 
+bool backend_texture_thread_safe() { return false; }  // the GL context belongs to the main thread
+
 void backend_create_texture(Texture *t, const TextureDesc &d) {
     GLTex *gt = new GLTex();
     glGenTextures(1, &gt->id);

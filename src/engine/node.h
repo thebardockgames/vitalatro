@@ -104,6 +104,10 @@ public:
     virtual void update(double dt) {}
     virtual void move(double dt) {}
     virtual bool is_moveable() const { return false; }
+    // Card hooks used by the engine (controller): overridden by Card
+    virtual bool is_card() const { return false; }
+    virtual bool has_single_tap() const { return false; }
+    virtual void single_tap() {}
 
     void draw_boundingrect();
     float fast_mid_dist(Node *other);
@@ -237,6 +241,14 @@ public:
     XY shadow_parrallax_store{0, -1.5f};
     XY *shadow_parrallax = &shadow_parrallax_store;
     XY layered_parallax;
+    // self.layered_parallax may alias another object's table (Card:set_card_area shares the
+    // area's) or be nil (card sprites), in which case prep_draw falls back to the parent's.
+    Moveable *layered_parallax_of = nullptr;
+    bool layered_parallax_nil = false;
+    const XY *lp() const {
+        if (layered_parallax_nil) return nullptr;
+        return layered_parallax_of ? layered_parallax_of->lp() : &layered_parallax;
+    }
     float shadow_height = 0.2f;
     bool zoom = false;
     bool STATIONARY = false;
@@ -247,6 +259,16 @@ public:
     bool frame_major_valid = false;
     MajorInfo frame_major;
     bool refresh_movement = false;  // config.refresh_movement
+
+    // Read by Sprite:draw_shader from the sprite's draw_major (usually a Card)
+    float dissolve = 0;
+    TableRef dissolve_colours;  // {colour, colour} or nil
+    bool touch_collide_tilt = false;
+    float hover_tilt = 0;
+    bool has_tilt_var = false;
+    struct { float mx = 0, my = 0, dx = 0, dy = 0, amt = 0; } tilt_var;
+    float mouse_damping = 1;
+    bool has_mouse_damping = false;
 };
 
 // ------------------------------------------------------------------ helpers (misc_functions.lua)

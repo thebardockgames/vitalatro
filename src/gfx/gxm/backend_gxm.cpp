@@ -343,6 +343,10 @@ bool backend_init() {
 }
 
 void backend_set_vsync(bool on) { g_vsync = on; }
+
+// backend_create_texture only allocates and fills its own memory block (kernel calls), so worker
+// threads may create textures (e.g. fonts decoded in the background)
+bool backend_texture_thread_safe() { return true; }
 int backend_screen_width() { return kW; }
 int backend_screen_height() { return kH; }
 
@@ -359,7 +363,7 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
         if (!mem) platform::fatal("out of GPU memory (%dx%d a8)", d.width, d.height);
         for (int y = 0; y < d.height; y++)
             std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width, (size_t)d.width);
-        sceGxmTextureInitLinearStrided(&g->tex, mem, SCE_GXM_TEXTURE_FORMAT_U8_111R, d.width, d.height, stride);
+        sceGxmTextureInitLinearStrided(&g->tex, mem, SCE_GXM_TEXTURE_FORMAT_U8_R111, d.width, d.height, stride);
         SceGxmTextureFilter f = d.filter == Filter::Linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT;
         sceGxmTextureSetMinFilter(&g->tex, f);
         sceGxmTextureSetMagFilter(&g->tex, f);
@@ -374,6 +378,9 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
         int stride = ALIGN(d.width, kTexRowAlign) * 8;
         uint8_t *mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)stride * d.height,
                                             SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        if (!mem)
+            mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, (size_t)stride * d.height,
+                                       SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
         if (!mem) platform::fatal("out of GPU memory (%dx%d f16)", d.width, d.height);
         for (int y = 0; y < d.height; y++)
             std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width * 8, (size_t)d.width * 8);

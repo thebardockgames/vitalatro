@@ -1,6 +1,8 @@
 #include "engine/random.h"
 
 #include <cmath>
+
+#include "core/math.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -73,7 +75,7 @@ double round13(double x) {
 double pseudohash(std::string_view s) {
     double num = 1;
     for (int i = (int)s.size(); i >= 1; i--)
-        num = lua_fmod((1.1239285023 / num) * (unsigned char)s[i - 1] * M_PI + M_PI * i, 1.0);
+        num = lua_fmod((1.1239285023 / num) * (unsigned char)s[i - 1] * PI + PI * i, 1.0);
     return num;
 }
 

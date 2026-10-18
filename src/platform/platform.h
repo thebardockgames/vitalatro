@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace vl::platform {
@@ -25,5 +26,12 @@ enum Button : uint32_t {
     BTN_L = 1u << 8, BTN_R = 1u << 9, BTN_START = 1u << 10, BTN_SELECT = 1u << 11,
 };
 void poll_input(Input &in);
+
+// Runs job on a worker thread (a native thread with a small stack on the Vita). When no thread
+// can be created the job runs right away on the calling thread.
+void run_async(std::function<void()> job);
+
+// Free memory in MB (user RAM, CDRAM); -1 when unknown.
+void free_memory_mb(int &user, int &cdram);
 
 }  // namespace vl::platform

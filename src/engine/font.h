@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/object.h"
 #include "core/value.h"
 #include "gfx/gfx.h"
 
@@ -15,7 +16,12 @@ namespace vl {
 class Font : public RefCounted {
 public:
     // id: baked font id, e.g. "m6x11plus_200"
+    // Fonts are loaded once and shared by id.
     static Ref<Font> load(const std::string &id);
+    // LOVE loads every font at startup. Here a worker thread decodes their pages in the background
+    // and pump() turns one decoded font per call into textures, so neither costs a visible frame.
+    static void preload_async(const std::vector<std::string> &ids);
+    static void pump();
 
     // love Font:getWidth(text) / getHeight() / getBaseline()
     int width(std::string_view utf8) const;
@@ -34,6 +40,8 @@ public:
     int page_count() const { return (int)pages_.size(); }
 
 private:
+    using DecodedFontRef = const void *;
+    static Ref<Font> build(const DecodedFontRef &decoded);
     int size_ = 0, ascent_ = 0, descent_ = 0, height_ = 0;
     std::vector<gfx::Texture *> pages_;
     std::unordered_map<uint32_t, Glyph> glyphs_;
@@ -42,7 +50,7 @@ private:
 };
 
 // love Text: a string laid out once with a font, drawn with the current transform and colour.
-class Text : public RefCounted {
+class Text : public Object {
 public:
     Text(Ref<Font> f, std::string_view s) : font_(std::move(f)) { set(s); }
     void set(std::string_view s);

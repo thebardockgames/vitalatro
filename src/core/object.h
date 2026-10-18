@@ -1,4 +1,6 @@
 #pragma once
+#include <functional>
+
 #include "core/value.h"
 
 namespace vl {
@@ -6,6 +8,13 @@ namespace vl {
 // Root of everything a Value can reference as an "object" (Node and all engine/game classes).
 struct Object : RefCounted {
     ~Object() override = default;
+};
+
+// A callable stored in a dynamic table (Lua function values such as config.release_func).
+struct Func : Object {
+    explicit Func(std::function<Value(const Value &)> f) : fn(std::move(f)) {}
+    Value call(const Value &arg = Value()) { return fn(arg); }
+    std::function<Value(const Value &)> fn;
 };
 
 }  // namespace vl

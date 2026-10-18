@@ -2,6 +2,8 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/sysmem.h>
 #include <psp2/power.h>
 #include <psp2/touch.h>
 
@@ -13,9 +15,11 @@
 #include "core/time.h"
 #include "platform/platform.h"
 
-// Newlib heap: let the game use most of the user memory (textures live in CDRAM).
+// Newlib heap size.
 extern "C" {
-int _newlib_heap_size_user = 192 * 1024 * 1024;
+// 96 MB: the game data needs far less, and the rest of the user memory backs GPU allocations
+// (textures and fonts fall back to it when CDRAM is full)
+int _newlib_heap_size_user = 96 * 1024 * 1024;
 }
 
 namespace vl {
@@ -47,7 +51,14 @@ bool read_whole(const std::string &path, std::string &out) {
 }
 }  // namespace
 
+namespace {
+void log_start();
+}
+
 void init() {
+    sceIoMkdir("ux0:data", 0777);
+    sceIoMkdir("ux0:data/Vitalatro", 0777);
+    log_start();
     // Max clocks: the A9 cores at 444 MHz, GPU at 222 MHz.
     scePowerSetArmClockFrequency(444);
     scePowerSetBusClockFrequency(222);
@@ -57,8 +68,6 @@ void init() {
         scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
-    sceIoMkdir("ux0:data", 0777);
-    sceIoMkdir("ux0:data/Vitalatro", 0777);
 }
 
 bool read_file(const char *path, std::string &out) { return read_whole(std::string(kDataRoot) + path, out); }
@@ -76,18 +85,61 @@ bool write_save(const char *path, const std::string &data) {
     return sceIoRename(tmp.c_str(), full.c_str()) >= 0;
 }
 
+namespace {
+// Log lines are appended to the memory card by a worker thread: opening and writing the file costs
+// tens of milliseconds, which showed up as frame spikes.
+SceKernelLwMutexWork log_mutex;
+SceUID log_sema = -1;
+std::string log_pending;
+
+void log_write(const std::string &text) {
+    SceUID fd = sceIoOpen("ux0:data/Vitalatro/log.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+    if (fd >= 0) {
+        sceIoWrite(fd, text.data(), (SceSize)text.size());
+        sceIoClose(fd);
+    }
+}
+
+std::string log_take() {
+    sceKernelLockLwMutex(&log_mutex, 1, nullptr);
+    std::string text;
+    text.swap(log_pending);
+    sceKernelUnlockLwMutex(&log_mutex, 1);
+    return text;
+}
+
+int log_thread(SceSize, void *) {
+    for (;;) {
+        sceKernelWaitSema(log_sema, 1, nullptr);
+        std::string text = log_take();
+        if (!text.empty()) log_write(text);
+    }
+    return 0;
+}
+
+void log_start() {
+    sceKernelCreateLwMutex(&log_mutex, "vl_log", 0, 0, nullptr);
+    log_sema = sceKernelCreateSema("vl_log", 0, 0, 1 << 20, nullptr);
+    SceUID t = sceKernelCreateThread("vl_log", log_thread, 0x10000100 + 30, 16 * 1024, 0, 0x20000 | 0x40000, nullptr);
+    if (log_sema < 0 || t < 0 || sceKernelStartThread(t, 0, nullptr) < 0) log_sema = -1;  // write inline
+}
+}  // namespace
+
 void log(const char *fmt, ...) {
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
-    SceUID fd = sceIoOpen("ux0:data/Vitalatro/log.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
-    if (fd >= 0) {
-        sceIoWrite(fd, buf, (SceSize)strlen(buf));
-        sceIoWrite(fd, "\n", 1);
-        sceIoClose(fd);
+    if (log_sema < 0) {
+        log_write(std::string(buf) + "\n");
+        return;
     }
+    sceKernelLockLwMutex(&log_mutex, 1, nullptr);
+    log_pending += buf;
+    log_pending += '\n';
+    sceKernelUnlockLwMutex(&log_mutex, 1);
+    sceKernelSignalSema(log_sema, 1);
 }
 
 void fatal(const char *fmt, ...) {
@@ -96,7 +148,8 @@ void fatal(const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
-    log("FATAL: %s", buf);
+    std::string text = log_sema >= 0 ? log_take() : std::string();
+    log_write(text + "FATAL: " + buf + "\n");
     sceKernelExitProcess(1);
     for (;;) {}
 }
@@ -124,6 +177,39 @@ void poll_input(Input &in) {
         in.touch_x = touch.report[0].x * 0.5f;
         in.touch_y = touch.report[0].y * 0.5f;
     }
+}
+
+namespace {
+int async_entry(SceSize, void *argp) {
+    auto *job = *(std::function<void()> **)argp;
+    (*job)();
+    delete job;
+    return sceKernelExitDeleteThread(0);
+}
+}  // namespace
+
+void run_async(std::function<void()> job) {
+    auto *heap_job = new std::function<void()>(std::move(job));
+    // lower priority than the game thread, 256 KB stack, any of the user cores
+    // on the two cores the game thread does not use (it runs on core 0)
+    SceUID t = sceKernelCreateThread("vl_worker", async_entry, 0x10000100 + 20, 256 * 1024, 0, 0x20000 | 0x40000, nullptr);
+    if (t < 0 || sceKernelStartThread(t, sizeof heap_job, &heap_job) < 0) {
+        log("run_async: no worker thread (0x%08x), running inline", (unsigned)t);
+        if (t >= 0) sceKernelDeleteThread(t);
+        (*heap_job)();
+        delete heap_job;
+    }
+}
+
+void free_memory_mb(int &user, int &cdram) {
+    SceKernelFreeMemorySizeInfo info{};
+    info.size = sizeof info;
+    if (sceKernelGetFreeMemorySize(&info) < 0) {
+        user = cdram = -1;
+        return;
+    }
+    user = info.size_user >> 20;
+    cdram = info.size_cdram >> 20;
 }
 
 }  // namespace platform

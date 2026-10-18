@@ -17,7 +17,7 @@ enum class ShaderId : uint8_t {
     Background, CRT, Dissolve, Foil, Holo, Polychrome, Negative, NegativeShine,
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
     // Vitalatro's own programs (shaders/internal)
-    BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged, BgField8, BgColor8,
+    BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged, BgField8, BgColor8, SplashField, SplashColor, VlDissolve, VlDissolveBaked,
     Count
 };
 
@@ -66,6 +66,9 @@ void set_vsync(bool on);
 
 Texture *create_texture(const TextureDesc &desc);
 void destroy_texture(Texture *t);
+// true when create_texture may be called from a worker thread (GXM: yes, GL: no)
+bool create_texture_any_thread();
+uint16_t float_to_half(float f);  // IEEE half, round to nearest, tiny values flushed to zero
 void texture_dimensions(const Texture *t, float &w, float &h);  // love getDimensions()
 
 enum class CanvasFormat : uint8_t { RGBA8, RGBA16F };

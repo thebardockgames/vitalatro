@@ -16,8 +16,30 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(VL_ASSETS "${CMAKE_SOURCE_DIR}/build/assets_${VL_TARGET}" CACHE PATH "assets directory")
 
 set(COMMON_SRC
+  src/core/value.cpp
   src/gfx/gfx.cpp
   src/gfx/shaders.cpp
+  src/engine/controller.cpp
+  src/engine/event.cpp
+  src/engine/font.cpp
+  src/engine/moveable.cpp
+  src/engine/node.cpp
+  src/engine/random.cpp
+  src/engine/particles.cpp
+  src/engine/sprite.cpp
+  src/engine/text.cpp
+  src/engine/ui.cpp
+  src/game/button_callbacks.cpp
+  src/game/card.cpp
+  src/game/common_events.cpp
+  src/game/g.cpp
+  src/game/game.cpp
+  src/game/input.cpp
+  src/game/misc_functions.cpp
+  src/game/render.cpp
+  src/game/run.cpp
+  src/game/sound.cpp
+  src/game/ui_definitions.cpp
   src/m0/m0.cpp
 )
 
@@ -35,11 +57,12 @@ if(VL_TARGET STREQUAL "vita")
     src/platform/vita/platform_vita.cpp
     src/main_vita.cpp)
   target_include_directories(vitalatro PRIVATE src third_party)
+  target_link_options(vitalatro PRIVATE -Wl,-T,${CMAKE_SOURCE_DIR}/src/platform/vita/vitalatro.ld)
   target_compile_definitions(vitalatro PRIVATE VL_VITA=1)
   target_link_libraries(vitalatro
     SceGxm_stub SceDisplay_stub SceCtrl_stub SceTouch_stub SceAudio_stub
     ScePower_stub SceSysmodule_stub SceAppUtil_stub SceAppMgr_stub SceCommonDialog_stub
-    m)
+    pthread m)
 
   vita_create_self(eboot.bin vitalatro UNSAFE)
 
@@ -65,5 +88,5 @@ else()
     src/main_pc.cpp)
   target_include_directories(vitalatro_pc PRIVATE src third_party)
   target_compile_definitions(vitalatro_pc PRIVATE VL_PC=1)
-  target_link_libraries(vitalatro_pc EGL OpenGL m)
+  target_link_libraries(vitalatro_pc EGL OpenGL pthread m)
 endif()

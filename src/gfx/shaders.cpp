@@ -49,6 +49,11 @@ const UniformDesc u_bg_merged[] = {{"pixel_size", 0, 1}, {"k", 1, 1}, {"field_si
 const UniformDesc u_bg_color8[] = {{"k", 0, 1}, {"contrast", 1, 1}, {"spin_amount", 2, 1},
                                     {"field_size", 4, 2}, {"colour_1", 8, 4}, {"colour_2", 12, 4},
                                     {"colour_3", 16, 4}};
+const UniformDesc u_splash_field[] = {{"swirl", 0, 1}, {"angle_add", 1, 1}, {"k1", 2, 1}, {"k2", 3, 1}};
+const UniformDesc u_splash_color[] = {{"smoke_t", 0, 1}, {"mid_flash", 1, 1}, {"colour_1", 4, 4}, {"colour_2", 8, 4}};
+const UniformDesc u_vl_dissolve[] = {CARD_LAYOUT("_unused"), {"vl_dis_a", 24, 4}, {"vl_dis_b", 28, 4}, {"vl_dis_c", 32, 4},
+                                      {"vl_dis_tint", 36, 4}};
+const UniformDesc u_vl_dissolve_baked[] = {CARD_LAYOUT("_unused"), {"vl_dis_c", 24, 4}, {"vl_dis_d", 28, 4}, {"vl_dis_tint", 32, 4}};
 const UniformDesc u_skew[] = {{"hovering", 0, 1}, {"screen_scale", 1, 1}, {"mouse_screen_pos", 2, 2}};
 
 #define N(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
@@ -81,6 +86,10 @@ const ShaderInfo kShaders[(int)ShaderId::Count] = {
     {"vl_bg_merged", u_bg_merged, N(u_bg_merged), 20, false},
     {"vl_bg_field8", u_bg_field, N(u_bg_field), 4, false, false, false},  // no blending
     {"vl_bg_color8", u_bg_color8, N(u_bg_color8), 20, false},
+    {"vl_splash_field", u_splash_field, N(u_splash_field), 4, false, true},
+    {"vl_splash_color", u_splash_color, N(u_splash_color), 12, false},
+    {"vl_dissolve", u_vl_dissolve, N(u_vl_dissolve), 40, true},
+    {"vl_dissolve_baked", u_vl_dissolve_baked, N(u_vl_dissolve_baked), 36, true},
 };
 #undef N
 

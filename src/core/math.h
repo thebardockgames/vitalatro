@@ -4,6 +4,8 @@
 
 namespace vl {
 
+constexpr double PI = 3.14159265358979323846;  // math.pi
+
 struct Vec2 {
     float x = 0, y = 0;
     Vec2() = default;

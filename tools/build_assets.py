@@ -101,6 +101,11 @@ def main():
     (out / 'data').mkdir(parents=True, exist_ok=True)
     run_wsl(['luajit', wsl_path(HERE / 'extract_data.lua'), wsl_path(game), wsl_path(out / 'data')])
     run_wsl(['python3', wsl_path(HERE / 'bake_fonts.py'), wsl_path(game), wsl_path(out / 'data'), wsl_path(out / 'fonts')])
+    # the game draws with the baked fonts; only the M0 diagnostics overlay still rasterizes a TTF
+    # (and stale TTFs from older builds would otherwise end up in the VPK)
+    for ttf in (out / 'fonts').glob('*.ttf'):
+        ttf.unlink()
+    shutil.copy2(res / 'fonts' / 'm6x11plus.ttf', out / 'fonts' / 'm6x11plus.ttf')
     print(f'assets ready in {out}')
 
 

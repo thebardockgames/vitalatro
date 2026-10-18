@@ -1,3 +1,5 @@
+#include "core/time.h"
+#include "game/run.h"
 #include "gfx/gfx.h"
 #include "m0/m0.h"
 #include "platform/platform.h"
@@ -5,13 +7,27 @@
 int main() {
     vl::platform::init();
     if (!vl::gfx::init()) vl::platform::fatal("gfx init failed");
-    vl::m0::init();
-    vl::gfx::set_vsync(false);  // benchmark measures uncapped frame times
-    uint32_t prev = 0;
+
+    // holding SELECT while the game boots opens the M0 rendering benchmark/diagnostics
+    vl::platform::Input in;
+    vl::platform::poll_input(in);
+    if (in.buttons & vl::platform::BTN_SELECT) {
+        vl::m0::init();
+        vl::gfx::set_vsync(false);
+        uint32_t prev = 0;
+        for (;;) {
+            vl::platform::poll_input(in);
+            vl::m0::frame(in.buttons & ~prev);
+            prev = in.buttons;
+        }
+    }
+
+    vl::game_boot();
+    double last = vl::time_now();
     for (;;) {
-        vl::platform::Input in;
-        vl::platform::poll_input(in);
-        vl::m0::frame(in.buttons & ~prev);
-        prev = in.buttons;
+        double now = vl::time_now();
+        double dt = now - last;
+        last = now;
+        vl::game_frame(dt);
     }
 }

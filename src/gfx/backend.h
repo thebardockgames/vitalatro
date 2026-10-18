@@ -57,6 +57,7 @@ void backend_set_vsync(bool on);
 int backend_screen_width();
 int backend_screen_height();
 void backend_create_texture(Texture *t, const TextureDesc &d);
+bool backend_texture_thread_safe();
 void backend_destroy_texture(Texture *t);
 void backend_create_canvas(Canvas *c);
 void backend_submit(const FrameData &f);  // render everything, then present
