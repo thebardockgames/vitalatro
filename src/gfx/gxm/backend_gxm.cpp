@@ -634,3 +634,15 @@ void backend_submit(const FrameData &f) {
 }
 
 }  // namespace vl::gfx
+
+namespace vl::gfx {
+
+// Last presented frame, top-down RGBA rows (waits for the GPU to finish it).
+void backend_read_screen(std::vector<uint8_t> &out) {
+    sceGxmFinish(g_ctx);
+    out.resize((size_t)kW * kH * 4);
+    const uint8_t *src = (const uint8_t *)g_disp_mem[g_front];
+    for (int y = 0; y < kH; y++) std::memcpy(&out[(size_t)y * kW * 4], src + (size_t)y * kStride * 4, (size_t)kW * 4);
+}
+
+}  // namespace vl::gfx

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/time.h"
+#include "gfx/backend.h"
 #include "gfx/gfx.h"
 #include "platform/platform.h"
 
@@ -18,6 +19,8 @@
 #include "stb/stb_image.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb/stb_truetype.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb/stb_image_write.h"
 
 namespace vl::m0 {
 namespace {
@@ -532,10 +535,14 @@ struct DiagTex {
 DiagTex diag_cards[5][2];  // [variant][0 = Enhancers, 1 = 8BitDeck]
 Canvas *bg_field8;
 int diag_page = 0;
-constexpr int kDiagPages = 5;
+constexpr int kDiagPages = 6;
 const char *kDiagNames[kDiagPages] = {"texture layouts A-E", "background: original shader",
                                       "background: k=2 RGBA16F field (polar strided)",
-                                      "background: k=2 RGBA8 field, manual bilinear", "polar texture k=2 (x8)"};
+                                      "background: k=2 RGBA8 field, manual bilinear", "polar texture k=2 (x3)",
+                                      "background: k=1 RGBA16F field"};
+
+bool frozen = false;
+int shot_no = 0;
 
 DiagTex make_diag_tex(const char *path, int variant) {
     std::string data;
@@ -611,8 +618,10 @@ void diag_render(double t) {
         set_canvas(canvas);
         set_shader(ShaderId::Default);
         draw(canvas_texture(bg_color), 0, 0, 0, pixel_size, pixel_size);
-    } else {
+    } else if (diag_page == 4) {
         draw(bg_polar[2], 0, 20, 0, 3, 3);
+    } else {
+        background_blocks(t, 1, 1, false);
     }
     set_shader(ShaderId::Default);
     set_canvas(nullptr);
@@ -621,8 +630,8 @@ void diag_render(double t) {
     set_color({0, 0, 0, 0.7f});
     rectangle_fill(0, 0, 960, 22);
     set_color({1, 1, 1, 1});
-    std::snprintf(label, sizeof label, "DIAG %d/%d: %s   (L/R page, START = benchmark)", diag_page + 1, kDiagPages,
-                  kDiagNames[diag_page]);
+    std::snprintf(label, sizeof label, "DIAG %d/%d: %s%s  L/R page SELECT freeze TRI shot", diag_page + 1,
+                  kDiagPages, kDiagNames[diag_page], frozen ? " [t=123.4]" : "");
     text(6, 0, label);
     if (diag_page == 0)
         for (int v = 0; v < 5; v++) {
@@ -692,6 +701,14 @@ void init() {
 }
 
 int config_count() { return kConfigCount; }
+int diag_page_count() { return kDiagPages; }
+void render_diag(int page, double t) {
+    diag_page = page;
+    frozen = true;
+    begin_frame();
+    diag_render(t);
+    end_frame();
+}
 const char *config_name(int i) { return kConfigs[i].name; }
 
 void render_config(int i, double t) {
@@ -712,9 +729,23 @@ void frame(uint32_t pressed) {
         if (pressed & platform::BTN_R) diag_page = (diag_page + 1) % kDiagPages;
         if (pressed & platform::BTN_L) diag_page = (diag_page + kDiagPages - 1) % kDiagPages;
         if (pressed & platform::BTN_START) diag_mode = false;
+        if (pressed & platform::BTN_SELECT) frozen = !frozen;
         begin_frame();
-        diag_render(t);
+        diag_render(frozen ? 123.4 : t);
         end_frame();
+        if (pressed & platform::BTN_TRIANGLE) {
+            // full framebuffer capture for exact comparison with the PC reference
+            std::vector<uint8_t> px;
+            gfx::backend_read_screen(px);
+            for (size_t i = 3; i < px.size(); i += 4) px[i] = 255;
+            int len = 0;
+            unsigned char *png = stbi_write_png_to_mem(px.data(), SW * 4, SW, SH, 4, &len);
+            char name[64];
+            std::snprintf(name, sizeof name, "shot_p%d_%d.png", diag_page, shot_no++);
+            platform::write_save(name, std::string((const char *)png, (size_t)len));
+            STBIW_FREE(png);
+            platform::log("saved %s", name);
+        }
         return;
     }
 

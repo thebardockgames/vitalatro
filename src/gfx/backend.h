@@ -60,5 +60,6 @@ void backend_create_texture(Texture *t, const TextureDesc &d);
 void backend_destroy_texture(Texture *t);
 void backend_create_canvas(Canvas *c);
 void backend_submit(const FrameData &f);  // render everything, then present
+void backend_read_screen(std::vector<uint8_t> &out);  // last presented frame, RGBA top-down
 
 }  // namespace vl::gfx

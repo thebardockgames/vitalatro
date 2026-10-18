@@ -11,5 +11,7 @@ bool finished();
 int config_count();
 const char *config_name(int i);
 void render_config(int i, double t);
+int diag_page_count();
+void render_diag(int page, double t);
 
 }  // namespace vl::m0

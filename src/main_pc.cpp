@@ -5,16 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "gfx/backend.h"
 #include "gfx/gfx.h"
 #include "m0/m0.h"
 #include "platform/platform.h"
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb/stb_image_write.h"
-
-namespace vl::gfx {
-void backend_read_screen(std::vector<uint8_t> &out);
-}
 
 int main(int argc, char **argv) {
     std::string prefix = argc > 1 ? argv[1] : "m0";
@@ -30,6 +26,13 @@ int main(int argc, char **argv) {
         stbi_write_png(out.c_str(), vl::gfx::screen_width(), vl::gfx::screen_height(), 4, px.data(),
                        vl::gfx::screen_width() * 4);
         vl::platform::log("%s -> %s", vl::m0::config_name(i), out.c_str());
+    }
+    for (int i = 0; i < vl::m0::diag_page_count(); i++) {
+        vl::m0::render_diag(i, t);
+        vl::gfx::backend_read_screen(px);
+        std::string out = prefix + "_diag" + std::to_string(i) + ".png";
+        stbi_write_png(out.c_str(), vl::gfx::screen_width(), vl::gfx::screen_height(), 4, px.data(),
+                       vl::gfx::screen_width() * 4);
     }
     return 0;
 }
