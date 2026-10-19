@@ -22,5 +22,19 @@ TableRef create_slider(const TableRef &args);
 TableRef create_button_binding_pip(const TableRef &args);
 TableRef language_selector();  // G.UIDEF.language_selector
 TableRef overlay_infotip(const Value &text_rows);
+Value ui_data(const Value &extracted);  // a live copy of a UI tree from data/ui_*.lua
+TableRef credits();                     // G.UIDEF.credits
+TableRef viewed_collab_option();        // G.UIDEF.viewed_collab_option
+TableRef create_UIBox_customize_deck();
+TableRef custom_deck_tab(std::string_view suit);  // G.UIDEF.custom_deck_tab
+double score_number_scale(double scale, const Value &amt);
+TableRef create_progress_box(const Value &profile_progress, bool smaller);
+TableRef create_UIBox_high_scores();
+TableRef create_UIBox_usage(const Value &args);
+TableRef usage_tabs();  // G.UIDEF.usage_tabs
+TableRef create_text_input(const TableRef &args);
+TableRef create_keyboard_input(const TableRef &args);
+TableRef profile_select();             // G.UIDEF.profile_select
+TableRef profile_option(int profile);  // G.UIDEF.profile_option
 
 }  // namespace vl

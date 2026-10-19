@@ -140,3 +140,61 @@ for _, lang in ipairs({'en-us', 'de', 'es_419', 'es_ES', 'fr', 'id', 'it', 'ja',
     local t = dofile(game_dir .. '/localization/' .. lang .. '.lua')
     write('loc_' .. lang, t)
 end
+
+-- ------------------------------------------------------------------ static UI trees
+-- Screens whose definitions are fixed literals (the credits) are built here with the original
+-- G.UIDEF functions and stored as data. Colours stay references into G.C ({__C = "UI.TEXT_LIGHT"})
+-- so the engine resolves them to its own (possibly animated) colour tables.
+local colour_path = {}
+local function index_colours(t, prefix)
+    for k, v in pairs(t) do
+        if type(v) == 'table' then
+            if type(v[1]) == 'number' and #v == 4 then
+                colour_path[v] = colour_path[v] or (prefix .. k)
+            else
+                index_colours(v, prefix .. k .. '.')
+            end
+        end
+    end
+end
+index_colours(G.C, '')
+
+local function pack_ui(v, path)
+    local t = type(v)
+    if t == 'table' then
+        if colour_path[v] then return '{["__C"]=' .. q(colour_path[v]) .. '}' end
+        local parts = {}
+        for k, val in pairs(v) do
+            parts[#parts + 1] = key_str(k) .. '=' .. pack_ui(val, path .. '.' .. tostring(k))
+        end
+        return '{' .. table.concat(parts, ',') .. '}'
+    end
+    return pack(v, path)
+end
+local function write_ui(name, value)
+    seen = {}
+    local f = assert(io.open(out_dir .. '/' .. name .. '.lua', 'w'))
+    f:write('return ', pack_ui(value, name), '\n')
+    f:close()
+    print('wrote ' .. name)
+end
+
+dofile(game_dir .. '/functions/UI_definitions.lua')
+-- builders the engine provides itself: kept as markers
+function create_UIBox_generic_options(args) return args end
+function create_tabs(args) return args end
+function UIBox_button(args) return {__ui = 'UIBox_button', args = args} end
+function create_option_cycle(args) return {__ui = 'create_option_cycle', args = args} end
+function Moveable() return {__object = 'Moveable'} end
+G.F_EXTERNAL_LINKS = false  -- the Vita has no browser
+G.F_BASIC_CREDITS = nil
+G.F_BABYNAMES = nil
+
+local credits = G.UIDEF.credits()
+local tabs = {}
+for i, tab in ipairs(credits.contents[1].nodes[1].tabs) do
+    local def = tab.tab_definition_function()
+    -- the Collabs tab is live (an option cycle swapping a UIBox): only its data is kept
+    tabs[i] = {label = tab.label, chosen = tab.chosen, definition = tab.label ~= 'Collabs' and def or nil}
+end
+write_ui('ui_credits', {tabs = tabs, collab_credits = G.collab_credits})

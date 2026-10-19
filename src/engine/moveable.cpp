@@ -375,7 +375,9 @@ void prep_draw(Moveable *m, float scale, float rotate, const XY *off, bool force
 }
 
 void add_to_drawhash(Node *n) {
-    if (n) G.DRAW_HASH.push_back(NodeRef(n));
+    if (!n) return;
+    n->zoomed = G.drawing_zoomed;
+    G.DRAW_HASH.push_back(NodeRef(n));
 }
 
 }  // namespace vl

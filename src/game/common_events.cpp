@@ -8,6 +8,8 @@
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/save_manager.h"
+#include "platform/platform.h"
 #include "game/sound.h"
 #include "game/ui_definitions.h"
 
@@ -61,6 +63,12 @@ void ease_value(ValueRef ref, double mod, bool floored, const EventTimer *timer,
     if (floored) e.ease_func = [](double t) { return std::floor(t); };
     e.ref = std::move(ref);
     G.E_MANAGER->add_event(std::move(e));
+}
+
+void ease_colour(const TableRef &old_colour, const Value &new_colour, double delay) {
+    static const EventTimer real = EventTimer::REAL;
+    for (int i = 1; i <= 4; i++)
+        ease_value(ValueRef::field(old_colour, i), new_colour[i].num() - old_colour->get(i).num(), false, &real, delay);
 }
 
 void ease_background_colour(const TableRef &args) {
@@ -567,7 +575,13 @@ void notify_alert(const Value &achievement, const Value &type_in) {
 }
 
 void unlock_notify() {
-    // TODO(saves): the unlock_notify.jkr queue written by the save manager (create_unlock_overlay)
+    std::string file = G.SETTINGS->get(K("profile")).to_string() + "/unlock_notify.jkr";
+    std::string un;
+    if (get_compressed(file, un)) {
+        // TODO(ui): create_unlock_overlay(key) for each line (card/deck unlock screens)
+        platform::log("unlock_notify: %s", un.c_str());
+        platform::remove_save(file.c_str());
+    }
 }
 
 void discover_card(const Value &card_in) {

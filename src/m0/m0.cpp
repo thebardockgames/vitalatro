@@ -1,6 +1,7 @@
 // Milestone 0 benchmark: reproduces the GPU/CPU load of a Balatro run frame on the target
 // (shader background, ~25 cards with their dissolve/edition layers, UI panels, canvas + CRT)
 // and measures the original pipeline against the optimised one on hardware.
+#include <cstdlib>
 #include "m0/m0.h"
 
 #include <cmath>
@@ -14,13 +15,10 @@
 #include "gfx/gfx.h"
 #include "platform/platform.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
 #include "stb/stb_image.h"
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "stb/stb_truetype.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "core/stb_extra.h"
 #include "stb/stb_image_write.h"
+#include "stb/stb_truetype.h"
 
 namespace vl::m0 {
 namespace {
@@ -743,7 +741,7 @@ void frame(uint32_t pressed) {
             char name[64];
             std::snprintf(name, sizeof name, "shot_p%d_%d.png", diag_page, shot_no++);
             platform::write_save(name, std::string((const char *)png, (size_t)len));
-            STBIW_FREE(png);
+            std::free(png);
             platform::log("saved %s", name);
         }
         return;

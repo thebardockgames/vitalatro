@@ -58,5 +58,8 @@ int main(int argc, char **argv) {
             vl::platform::log("frame %d -> %s", f, out.c_str());
         }
     }
-    return 0;
+    // the save/sound/audio threads run until the process ends (as on the Vita): skip the static
+    // destructors they would race with
+    std::fflush(nullptr);
+    std::_Exit(0);
 }

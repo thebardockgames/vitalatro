@@ -645,9 +645,10 @@ std::pair<Atlas *, Value> get_front_spriteinfo(const Value &front) {
 
 void reset_drawhash() { G.DRAW_HASH.clear(); }
 
-void RESET_STATES(int) {
-    // TODO(audio): SOURCES[*].created_on_state = state once the sound manager is ported
-}
+// With G.F_SOUND_THREAD the sources live on the sound thread: the main thread's SOURCES is the
+// empty table from Game:init, so this is a no-op in the original (splash sounds keep fading with
+// G.SPLASH_VOL after the splash ends).
+void RESET_STATES(int) {}
 
 Value get_stake_col(int stake) {
     static TableRef stakes;

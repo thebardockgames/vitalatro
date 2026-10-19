@@ -92,6 +92,9 @@ def main():
     res = game / 'resources'
     copy_tree(res / 'textures' / '1x', out / 'textures' / '1x', '**/*.png')
     copy_tree(res / 'sounds', out / 'sounds', '*.ogg')
+    # love.filesystem.getDirectoryItems("resources/sounds") at runtime: the list ships as a file
+    (out / 'sounds' / 'index.txt').write_text(
+        ''.join(p.stem + '\n' for p in sorted((res / 'sounds').glob('*.ogg'))), encoding='utf-8', newline='\n')
     shaders = gather_shaders(res / 'shaders', out.parent / ('shaders_src_' + target))
     if target == 'vita':
         build_vita_shaders(shaders, out / 'shaders')

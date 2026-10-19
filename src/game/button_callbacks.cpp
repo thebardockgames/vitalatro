@@ -239,7 +239,8 @@ void slider(UIElement *e) {
         Table *target = rt->get(K("ref_table")).table();
         Value key = rt->get(K("ref_value"));
         double mn = rt->get(K("min")).num(), mx = rt->get(K("max")).num();
-        double v = std::min(mx, std::max(mn, mn + (mx - mn) * (G.CURSOR->T->x - e->parent->T->x - G.ROOM->T->x) / e->T->w));
+        float cx = e->zoomed ? G.overlay_zoom.unzoom({G.CURSOR->T->x, G.CURSOR->T->y}).x : G.CURSOR->T->x;
+        double v = std::min(mx, std::max(mn, mn + (mx - mn) * (cx - e->parent->T->x - G.ROOM->T->x) / e->T->w));
         target->set(key, v);
         char buf[64];
         std::snprintf(buf, sizeof buf, "%.*f", (int)rt->get(K("decimal_places")).num(), v);
@@ -437,6 +438,217 @@ void refresh_contrast_mode() {
 }
 }  // namespace
 
+// ------------------------------------------------------------------ text input
+namespace {
+UIElement *hook() { return dynamic_cast<UIElement *>(G.CONTROLLER->text_input_hook.get()); }
+std::string config_str(UIElement *e, const char *k) { return e && e->config ? e->config->get(Value(intern(k))).to_string() : std::string(); }
+
+// GET_TEXT_FROM_INPUT
+std::string text_from_input() {
+    std::string new_text;
+    UIElement *h = hook();
+    for (int i = 0; i < h->children.count(); i++) {
+        UIElement *c = child_uie(h, i);
+        if (c && config_str(c, "id").compare(0, 7, "letter_") == 0 && !config_str(c, "text").empty()) new_text += config_str(c, "text");
+    }
+    return new_text;
+}
+
+// MODIFY_TEXT_INPUT{letter, text_table, pos, delete}
+void modify_text_input(const std::string &letter, const TableRef &text, int pos, bool del) {
+    Table *letters = text->get(K("letters")).table();
+    if (del && pos > 0) {
+        if (pos >= letters->len()) {
+            letters->set(pos, Value(""));
+        } else {
+            letters->set(pos, letters->get(pos + 1));
+            modify_text_input(letter, text, pos + 1, del);
+        }
+        return;
+    }
+    Value swapped = letters->get(pos);
+    letters->set(pos, Value(letter));
+    if (swapped.truthy() && !swapped.to_string().empty()) modify_text_input(swapped.to_string(), text, pos + 1, false);
+}
+
+// TRANSPOSE_TEXT_INPUT(amount)
+void transpose_text_input(int amount) {
+    UIElement *h = hook();
+    TableRef text(fld(h->config->get(K("ref_table")), "text").table());
+    int position_child = -1;
+    for (int i = 0; i < h->children.count(); i++)
+        if (config_str(child_uie(h, i), "id") == "position") {
+            position_child = i;
+            break;
+        }
+    int dir = amount > 0 ? 1 : amount < 0 ? -1 : 0;  // amount/math.abs(amount) is nan for 0: no move
+    while (amount != 0) {
+        if (position_child + dir < 0 || position_child + dir >= h->children.count() - 1) break;
+        UIElement *other = child_uie(h, position_child + dir);
+        bool real_letter = config_str(other, "id").compare(0, 7, "letter_") == 0 && !config_str(other, "text").empty();
+        h->children.swap(position_child, position_child + dir);
+        if (real_letter) amount -= dir;
+        position_child += dir;
+    }
+    Value rt = text->get(K("ref_table")), rv = text->get(K("ref_value"));
+    text->set("current_position", (double)std::min<int>(position_child, (int)rt.get(rv).to_string().size()));
+    h->box->recalculate();
+    rt.table()->set(rv, Value(text_from_input()));
+}
+}  // namespace
+
+// G.FUNCS.text_input_key{key, caps}
+void text_input_key(std::string key, bool caps) {
+    if (key == "[" || key == "]") return;
+    if (key == "0") key = "o";
+    UIElement *h = hook();
+    TableRef hook_config(h->config->get(K("ref_table")).table());
+    if (!hook_config->get(K("orig_colour")).truthy())
+        hook_config->set("orig_colour", Value(hook_config->get(K("colour")).table()->deep_copy()));
+    if (key.empty()) key = "%";
+    caps = caps || G.CONTROLLER->capslock || hook_config->get(K("all_caps")).truthy();
+
+    static const std::pair<const char *, const char *> keymap[] = {{"space", " "},     {"backspace", "BACKSPACE"}, {"delete", "DELETE"},
+                                                                    {"return", "RETURN"}, {"right", "RIGHT"},       {"left", "LEFT"}};
+    bool extended = hook_config->get(K("extended_corpus")).truthy();
+    std::string corpus = std::string("123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") + (extended ? " 0!$&()<>?:{}+-=,.[]_" : "");
+    if (extended && key.size() == 1) {
+        static const std::string lower_ext = "1234567890-=;',./", upper_ext = "!@#$%^&*()_+:\"<>?";
+        size_t at = lower_ext.find(key);
+        if (at != std::string::npos && caps) key = upper_ext.substr(at, 1);
+    }
+    TableRef text(hook_config->get(K("text")).table());
+    bool mapped = false;
+    for (auto &m : keymap)
+        if (key == m.first) {
+            key = m.second;
+            mapped = true;
+        }
+    if (!mapped && caps)
+        for (char &c : key) c = (char)std::toupper((unsigned char)c);
+
+    transpose_text_input(0);
+    Value rt = text->get(K("ref_table")), rv = text->get(K("ref_value"));
+    size_t len = rt.get(rv).to_string().size();
+    int pos = (int)text->get(K("current_position")).num();
+    if (len > 0 && key == "BACKSPACE") {
+        modify_text_input("", text, pos, true);
+        transpose_text_input(-1);
+    } else if (len > 0 && key == "DELETE") {
+        modify_text_input("", text, pos + 1, true);
+        transpose_text_input(0);
+    } else if (key == "RETURN") {
+        if (Func *cb = hook_config->get(K("callback")).as<Func>()) cb->call(Value());
+        UIElement *pp = dynamic_cast<UIElement *>(h->parent ? h->parent->parent : nullptr);
+        if (pp) pp->config->set("colour", hook_config->get(K("colour")));
+        Value temp_colour = Value(hook_config->get(K("orig_colour")).table()->deep_copy());
+        Table *c = hook_config->get(K("colour")).table();
+        Value white = G.colour("WHITE");
+        for (int i = 1; i <= 3; i++) c->set(i, white[i]);
+        ease_colour(TableRef(c), temp_colour);
+        G.CONTROLLER->text_input_hook = nullptr;
+    } else if (key == "LEFT") {
+        transpose_text_input(-1);
+    } else if (key == "RIGHT") {
+        transpose_text_input(1);
+    } else if (hook_config->get(K("max_length")).num() > (double)len && key.size() == 1 && corpus.find(key) != std::string::npos) {
+        modify_text_input(key, text, pos + 1, false);
+        transpose_text_input(1);
+    }
+}
+
+namespace {
+// ------------------------------------------------------------------ profiles
+std::pair<bool, double> check_profile(const Value &profile_tab) {
+    bool deleted = true;
+    double version = -1;
+    if (profile_tab.truthy()) {
+        if (fld(profile_tab, "deleted").truthy()) {
+            deleted = true;
+            version = fld(profile_tab, "ver").num();
+        } else if (fld(profile_tab, "progress").truthy()) {
+            deleted = false;
+            version = fld(profile_tab, "ver").num();
+        }
+    }
+    return {deleted, version};
+}
+
+void load_profile_fn() {
+    G.E_MANAGER->clear_queue();
+    wipe_on();
+    EventConfig a = ev_immediate([] {
+        G.delete_run();
+        Value _name;
+        G.SETTINGS->set("profile", G.focused_profile ? G.focused_profile : 1);
+        Value name = fld(G.PROFILES->get(G.focused_profile), "name");
+        if (name.truthy() && !name.to_string().empty()) _name = name;
+        G.PROFILES->set(G.focused_profile, Value(new_table()));
+        G.DISCOVER_TALLIES = nullptr;
+        G.PROGRESS = nullptr;
+        G.load_profile(G.focused_profile);
+        G.PROFILES->get(G.focused_profile).table()->set("name", _name);
+        G.PROFILES->get(G.focused_profile).table()->set("deleted", Value());
+        G.init_item_prototypes();
+        return true;
+    });
+    a.no_delete = true;
+    G.E_MANAGER->add_event(std::move(a));
+    EventConfig b = ev_immediate([] {
+        G.main_menu();
+        G.FILE_HANDLER->set("force", true);
+        return true;
+    });
+    b.no_delete = true;
+    b.blockable = true;
+    b.blocking = false;
+    G.E_MANAGER->add_event(std::move(b));
+    wipe_off();
+}
+
+void delete_profile(UIElement *e) {
+    UIElement *warning_text = e->box->get_UIE_by_ID("warning_text");
+    if (warning_text->config->get(K("colour")) != G.colour("WHITE")) {
+        warning_text->juice_up();
+        warning_text->config->set("colour", G.colour("WHITE"));
+        warning_text->config->set("shadow", true);
+        e->config->set("disable_button", true);
+        EventConfig s = ev_after(0.06, [] {
+            play_sound("tarot2", 0.76f, 0.4f);
+            return true;
+        });
+        s.blockable = false;
+        s.blocking = false;
+        G.E_MANAGER->add_event(std::move(s));
+        NodeRef er(e);
+        EventConfig d = ev_after(0.35, [er] {
+            if (auto *u = dynamic_cast<UIElement *>(er.get())) u->config->set("disable_button", Value());
+            return true;
+        });
+        d.blockable = false;
+        d.blocking = false;
+        G.E_MANAGER->add_event(std::move(d));
+        play_sound("tarot2", 1, 0.4f);
+        return;
+    }
+    std::string p = std::to_string(G.focused_profile);
+    for (const char *f : {"/save.jkr", "/meta.jkr", "/unlock_notify.jkr"}) {
+        platform::remove_save((p + f).c_str());
+        G.FILES->set(Value(p + f), Value());
+    }
+    G.DISCOVER_TALLIES = nullptr;
+    G.PROGRESS = nullptr;
+    Table *counters = G.SETTINGS->get(K("profile_counters")).table();
+    counters->set(G.focused_profile, counters->get(G.focused_profile).num() + 1);
+    G.empty_profile(G.focused_profile);
+    if (G.focused_profile == (int)G.SETTINGS->get(K("profile")).num()) {
+        load_profile_fn();
+    } else {
+        change_tab(static_cast<UIBox *>(G.OVERLAY_MENU.get())->get_UIE_by_ID(("tab_but_" + p).c_str()));
+    }
+}
+}  // namespace
+
 void register_button_callbacks() {
     auto &F = G.FUNCS;
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
@@ -447,6 +659,177 @@ void register_button_callbacks() {
     F["settings"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
         overlay_menu(create_UIBox_settings(), vl::T({{"offset", Value(vl::T({{"x", 0}, {"y", 10}}))}}));
+    };
+    F["flash"] = [](UIElement *e) {
+        Table *c = e->config->get(K("colour")).table();
+        if (G.CONTROLLER->text_input_hook) {
+            c->set(4, (int)std::floor(G.TIMERS.REAL * 2) % 2 == 1 ? 0 : 1);
+            if (e->config->get(K("w")).num() != 0.1) {
+                e->config->set("w", 0.1);
+                e->box->recalculate();
+            }
+        } else {
+            c->set(4, 0);
+            if (e->config->get(K("w")).num() != 0) {
+                e->config->set("w", 0);
+                e->box->recalculate();
+            }
+        }
+    };
+    F["text_input"] = [](UIElement *e) {
+        Value args = e->config->get(K("ref_table"));
+        UIElement *pp = dynamic_cast<UIElement *>(e->parent->parent);
+        bool hooked = G.CONTROLLER->text_input_hook.get() == e;
+        Table *a = args.table();
+        if (hooked) {
+            pp->config->set("colour", a->get(K("hooked_colour")));
+            a->set("current_prompt_text", "");
+            a->set("current_position_text", a->get(K("position_text")));
+        } else {
+            pp->config->set("colour", a->get(K("colour")));
+            Value text = a->get(K("text"));
+            a->set("current_prompt_text", fld(text, "ref_table").get(fld(text, "ref_value")).to_string().empty() ? a->get(K("prompt_text")) : Value(""));
+            a->set("current_position_text", "");
+        }
+        // The Vita has no physical keyboard: the on-screen one opens whatever the input device
+        // (the original opens it for controllers and on mobile)
+        UIElement *OSkeyboard_e = dynamic_cast<UIElement *>(pp->parent);
+        if (hooked) {
+            if (!OSkeyboard_e->children.get("controller_keyboard")) {
+                Value off = fld(e->config->get(K("ref_table")), "keyboard_offset");
+                UIBox *kb = new UIBox(create_keyboard_input(vl::T({{"backspace_key", true}, {"return_key", true}, {"space_key", false}})),
+                                      vl::T({{"align", "cm"},
+                                             {"offset", Value(vl::T({{"x", 0}, {"y", off.truthy() ? off : Value(-4)}}))},
+                                             {"major", Value((Object *)e->box)},
+                                             {"parent", Value((Object *)OSkeyboard_e)}}));
+                OSkeyboard_e->children.set("controller_keyboard", kb);
+                G.CONTROLLER->screen_keyboard = kb;
+                G.CONTROLLER->mod_cursor_context_layer(1);
+            }
+        } else if (Node *kb = OSkeyboard_e->children.get("controller_keyboard")) {
+            kb->remove();
+            OSkeyboard_e->children.set("controller_keyboard", nullptr);
+            G.CONTROLLER->screen_keyboard = nullptr;
+            G.CONTROLLER->mod_cursor_context_layer(-1);
+        }
+    };
+    F["select_text_input"] = [](UIElement *e) {
+        G.CONTROLLER->text_input_hook = e->children.at(0)->children.at(0);
+        transpose_text_input(0);
+        e->box->recalculate();
+    };
+    F["key_button"] = [](UIElement *e) {
+        Value key = fld(e->config->get(K("ref_table")), "key");
+        if (key.truthy()) G.CONTROLLER->key_press_update(key.to_string(), 0);
+    };
+    F["profile_select"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        G.focused_profile = (int)G.SETTINGS->get(K("profile")).num();
+        for (int i = 1; i <= 3; i++)
+            if (i != G.focused_profile && G.FILES->get(Value(std::to_string(i) + "/profile.jkr")).truthy()) G.load_profile(i);
+        G.load_profile(G.focused_profile);
+        overlay_menu(profile_select());
+    };
+    F["can_load_profile"] = [](UIElement *e) {
+        if ((int)G.SETTINGS->get(K("profile")).num() == G.focused_profile) {
+            e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+            e->config->set("button", Value());
+        } else {
+            e->config->set("colour", G.colour("BLUE"));
+            e->config->set("button", "load_profile");
+        }
+    };
+    F["load_profile"] = [](UIElement *) { load_profile_fn(); };
+    F["can_delete_profile"] = [](UIElement *e) {
+        if (G.CHECK_PROFILE_DATA != 1)  // not G.CHECK_PROFILE_DATA: nil and false both re-check
+            G.CHECK_PROFILE_DATA = check_profile(G.FILES->get(Value(std::to_string(G.focused_profile) + "/profile.jkr"))).first ? 0 : 1;
+        if (G.CHECK_PROFILE_DATA == 0 || e->config->get(K("disable_button")).truthy()) {
+            G.CHECK_PROFILE_DATA = 0;
+            e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+            e->config->set("button", Value());
+        } else {
+            e->config->set("colour", G.colour("RED"));
+            e->config->set("button", "delete_profile");
+        }
+    };
+    F["delete_profile"] = delete_profile;
+    F["can_unlock_all"] = [](UIElement *e) {
+        if (fld(G.PROFILES->get(G.SETTINGS->get(K("profile"))), "all_unlocked").truthy() || e->config->get(K("disable_button")).truthy()) {
+            e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+            e->config->set("button", Value());
+        } else {
+            e->config->set("colour", G.colour("GREY"));
+            e->config->set("button", "unlock_all");
+        }
+    };
+    F["unlock_all"] = [](UIElement *e) {
+        UIElement *infotip = static_cast<UIBox *>(G.OVERLAY_MENU.get())->get_UIE_by_ID("overlay_menu_infotip");
+        if (!infotip->config->get(K("set")).truthy() && !G.F_NO_ACHIEVEMENTS) {
+            if (Node *o = infotip->config->get(K("object")).as<Node>()) o->remove();
+            UIBox *box = new UIBox(overlay_infotip(localize("ml_unlock_all_explanation")),
+                                   vl::T({{"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}, {"align", "bm"}, {"parent", Value((Object *)infotip)}}));
+            infotip->config->set("object", Value((Object *)box));
+            box->UIRoot->juice_up();
+            infotip->config->set("set", true);
+            e->config->set("disable_button", true);
+            EventConfig s = ev_after(0.06, [] {
+                play_sound("tarot2", 0.76f, 0.4f);
+                return true;
+            });
+            s.blockable = false;
+            s.blocking = false;
+            G.E_MANAGER->add_event(std::move(s));
+            NodeRef er(e);
+            EventConfig d = ev_after(0.35, [er] {
+                if (auto *u = dynamic_cast<UIElement *>(er.get())) u->config->set("disable_button", Value());
+                return true;
+            });
+            d.blockable = false;
+            d.blocking = false;
+            G.E_MANAGER->add_event(std::move(d));
+            play_sound("tarot2", 1, 0.4f);
+            return;
+        }
+        G.PROFILES->get(G.SETTINGS->get(K("profile"))).table()->set("all_unlocked", true);
+        for (Table *pool : {G.P_CENTERS.get(), G.P_BLINDS.get(), G.P_TAGS.get()})
+            pool->each([](const Value &, const Value &v) {
+                if (!fld(v, "demo").truthy() && !fld(v, "wip").truthy()) {
+                    v.table()->set("alerted", true);
+                    v.table()->set("discovered", true);
+                    v.table()->set("unlocked", true);
+                }
+            });
+        set_profile_progress();
+        set_discover_tallies();
+        G.save_progress();
+        G.FILE_HANDLER->set("force", true);
+        change_tab(static_cast<UIBox *>(G.OVERLAY_MENU.get())->get_UIE_by_ID(("tab_but_" + std::to_string(G.focused_profile)).c_str()));
+    };
+    F["high_scores"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_high_scores());
+    };
+    F["usage"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(usage_tabs());
+    };
+    F["customize_deck"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_customize_deck());
+    };
+    F["show_credits"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(credits());
+    };
+    F["CREDITS_check_collab"] = [](UIElement *e) {
+        if (!e->config->get(K("id")).equals(G.viewed_collab.c_str())) {
+            if (Node *o = e->config->get(K("object")).as<Node>()) o->remove();
+            e->config->set("object", Value((Object *)new UIBox(viewed_collab_option(),
+                                                                 vl::T({{"offset", Value(vl::T({{"x", 0}, {"y", 0}}))},
+                                                                        {"align", "cm"},
+                                                                        {"parent", Value((Object *)e)}}))));
+            e->config->set("id", Value(G.viewed_collab));
+        }
     };
     F["language_selection"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
@@ -463,6 +846,19 @@ void register_button_callbacks() {
     F["change_lang"] = change_lang;
 
     auto &T = G.FUNCS_T;
+    T["change_collab"] = [](const TableRef &a) {
+        Value suit = fld(a->get(K("cycle_config")), "curr_suit");
+        Value collab = fld(fld(Value(G.COLLABS), "options"), std::string(suit.str()).c_str()).get(a->get(K("to_key")));
+        fld(fld(Value(G.SETTINGS), "CUSTOM_DECK"), "Collabs").table()->set(suit, collab.truthy() ? collab : Value("default"));
+        G.I.CARD.each([](Moveable *m) {
+            Card *v = dynamic_cast<Card *>(m);
+            if (v && v->config && v->config->get(K("card")).truthy() && v->children.get("front") &&
+                !fld(Value(v->ability), "effect").equals("Stone Card"))
+                v->set_sprites(Value(), v->config->get(K("card")));
+        });
+        G.save_settings();
+    };
+    T["change_viewed_collab"] = [](const TableRef &a) { G.viewed_collab = a->get(K("to_val")).to_string(); };
     T["change_gamespeed"] = [](const TableRef &a) { G.SETTINGS->set("GAMESPEED", a->get(K("to_val"))); };
     T["change_play_discard_position"] = [](const TableRef &a) {
         G.SETTINGS->set("play_button_pos", a->get(K("to_key")));

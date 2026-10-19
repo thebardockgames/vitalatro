@@ -175,6 +175,14 @@ public:
             if (!hvals_[i].is_nil()) f(hkeys_[i], hvals_[i]);
     }
     const std::vector<Value> &array() const { return arr_; }
+    // next(t) == nil
+    bool empty() const {
+        for (const Value &v : arr_)
+            if (!v.is_nil()) return false;
+        for (const Value &v : hvals_)
+            if (!v.is_nil()) return false;
+        return true;
+    }
 
     Ref<Table> deep_copy() const;  // copy_table()
 

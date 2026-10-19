@@ -17,6 +17,7 @@
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/render.h"
+#include "game/save_manager.h"
 #include "game/sound.h"
 #include "game/ui_definitions.h"
 #include "gfx/gfx.h"
@@ -29,6 +30,8 @@ namespace vl {
 namespace {
 inline Value fld(const Value &t, const char *k) { return t.get(Value(intern(k))); }
 
+}  // namespace
+
 TableRef load_data(const std::string &name) {
     std::string src;
     if (!platform::read_file(("data/" + name + ".lua").c_str(), src)) platform::fatal("missing data/%s.lua", name.c_str());
@@ -38,6 +41,7 @@ TableRef load_data(const std::string &name) {
     return TableRef(v.table());
 }
 
+namespace {
 // localize(args) calls inside the prototype literals were exported as {__localize = args}
 void resolve_localize(Table *t) {
     t->each([&](const Value &k, const Value &v) {
@@ -114,6 +118,51 @@ void draw_node(Node *v) {
     v->draw();
     gfx::pop();
 }
+
+// Is v part of the overlay menu (an element of it, or a popup/alert attached to one)?
+bool in_overlay(Node *v) {
+    Node *o = G.OVERLAY_MENU.get();
+    for (int i = 0; v && i < 64; i++) {
+        if (v == o) return true;
+        Moveable *m = dynamic_cast<Moveable *>(v);
+        v = v->parent ? v->parent : m ? m->role.major.get() : nullptr;
+    }
+    return false;
+}
+
+void draw_zoomed(Node *v) {
+    const auto &z = G.overlay_zoom;
+    float ppu = G.TILESCALE * G.TILESIZE;
+    gfx::push();
+    gfx::translate(z.cx * ppu, z.cy * ppu);
+    gfx::scale(z.s);
+    gfx::translate(-z.cx * ppu, -z.cy * ppu);
+    G.drawing_zoomed = true;
+    draw_node(v);
+    G.drawing_zoomed = false;
+    gfx::pop();
+}
+
+// The overlay's panel is drawn up to 1.6x about its own centre, as large as fits the screen with a
+// small margin. Only its size matters, so the slide-in animation keeps one scale throughout (the
+// panels rest centred on the screen).
+void update_overlay_zoom() {
+    auto &z = G.overlay_zoom;
+    z.on = false;
+    UIBox *ob = dynamic_cast<UIBox *>(G.OVERLAY_MENU.get());
+    if (!ob || !G.SETTINGS->get(K("vl_large_menus")).truthy()) return;
+    // the visible panel: the root itself is a screen-sized dimmed backdrop (padding = 15)
+    Node *panel = ob->UIRoot && ob->UIRoot->children.count() ? ob->UIRoot->children.at(0) : nullptr;
+    if (!panel || panel->T->w <= 0 || panel->T->h <= 0) return;
+    float ppu = G.TILESCALE * G.TILESIZE, m = 0.15f;
+    float W = gfx::screen_width() / ppu, H = gfx::screen_height() / ppu;
+    Moveable *pm = dynamic_cast<Moveable *>(panel);
+    const Transform &t = pm ? pm->VT : *panel->T;
+    z.s = std::min({1.6f, (W - 2 * m) / panel->T->w, (H - 2 * m) / panel->T->h});
+    z.cx = t.x + t.w / 2 + G.ROOM->T->x;
+    z.cy = t.y + t.h / 2 + G.ROOM->T->y;
+    z.on = z.s > 1.02f;
+}
 }  // namespace
 
 // ------------------------------------------------------------------ Game:init / set_globals
@@ -137,7 +186,7 @@ void game_init() {
     G.F_QUIT_BUTTON = false;
     G.F_VIDEO_SETTINGS = false;
     G.F_EXTERNAL_LINKS = false;
-    G.F_SAVE_TIMER = 30;
+    G.F_SAVE_TIMER = 5;  // the PC value (Windows/OS X): the Vita app can be closed at any moment
     lua_math.seed(os_time());  // math.randomseed(G.SEED)
     // G:init_window()
     G.ROOM_PADDING_H = 0.4f;
@@ -156,9 +205,20 @@ void game_init() {
 void Globals::start_up() {
     E_MANAGER = new EventManager();
     SPEEDFACTOR = 1;
-    // TODO(saves): load_all_files() (settings.jkr, profiles, meta) through the save manager
+    sound_start();  // G.F_SOUND_THREAD: the SOUND_MANAGER thread
+    // load_all_files(): every file is local on the Vita (the original fetches profile/meta through
+    // the platform's cloud save layer, which also reads them from disk)
+    for (const char *f : {"settings.jkr", "1/profile.jkr", "1/save.jkr", "1/meta.jkr", "1/unlock_notify.jkr", "2/profile.jkr",
+                          "2/save.jkr", "2/meta.jkr", "2/unlock_notify.jkr", "3/profile.jkr", "3/save.jkr", "3/meta.jkr",
+                          "3/unlock_notify.jkr"}) {
+        Value v = load_local_file(f);
+        if (v.truthy()) FILES->set(f, v);
+    }
+    if (Table *settings_file = FILES->get("settings.jkr").table())
+        settings_file->each([&](const Value &k, const Value &v) { SETTINGS->set(k, v); });
     SETTINGS->set("version", Value(VERSION));
     if (!SETTINGS->get(K("profile")).truthy()) SETTINGS->set("profile", 1);
+    if (SETTINGS->get(K("vl_large_menus")).is_nil()) SETTINGS->set("vl_large_menus", true);  // Vitalatro option
     SETTINGS->set("paused", Value());
 
     Value proto = C->get(SETTINGS->get(K("colourblind_option")).truthy() ? "SO_2" : "SO_1");
@@ -378,6 +438,18 @@ void Globals::load_profile(int profile) {
     p->set("ver", std::max(p->get(K("ver")).num(), counter));
 }
 
+void Globals::empty_profile(int profile) {
+    ARGS->set("save_settings", Value(SETTINGS));
+    if (!FILE_HANDLER) FILE_HANDLER = new_table();
+    FILE_HANDLER->set("empty_profile", profile);
+    FILE_HANDLER->set("update_queued", true);
+    Value prev = PROFILES->get(profile);
+    TableRef p = vl::T({{"deleted", true}, {"ver", SETTINGS->get(K("profile_counters"))[profile].num()}});
+    if (prev.truthy()) p->set("flags", fld(prev, "flags"));
+    PROFILES->set(profile, Value(p));
+    FILES->set(Value(std::to_string(profile) + "/profile.jkr"), Value(p));
+}
+
 void Globals::set_language() {
     if (LANGUAGES.empty()) {
         // (only the languages whose localization file exists; the Vita build ships all of them)
@@ -467,7 +539,13 @@ void Globals::set_render_settings() {
         {"balatro", "balatro.png", 333, 216},    {"gamepad_ui", "gamepad_ui.png", 32, 32}, {"icons", "icons.png", 66, 66},
         {"tags", "tags.png", 34, 34},            {"stickers", "stickers.png", 71, 95},     {"chips", "chips.png", 29, 29}};
     for (auto &a : atli) ASSET_ATLAS[a.name] = Atlas{a.name, tex(a.file), a.px, a.py, 0};
-    // TODO(collabs): collab_* atlases (loaded on demand when a collab deck skin is selected)
+    // the collab face cards (71x95 frames, 213x95 per skin at 1x)
+    for (const char *c : {"AU", "TW", "VS", "DTD", "CYP", "STS", "TBoI", "SV", "SK", "DS", "CL", "D2", "PC", "WF", "EG", "XR", "CR",
+                          "BUG", "FO", "DBD", "C7", "R", "AC", "STP"})
+        for (const char *n : {"_1", "_2"}) {
+            std::string name = std::string("collab_") + c + n;
+            ASSET_ATLAS[name] = Atlas{name, tex(("collabs/" + name + ".png").c_str()), 71, 95, 0};
+        }
     G.I.SPRITE.each([](Moveable *m) {
         if (auto *s = dynamic_cast<Sprite *>(m)) s->reset();
     });
@@ -511,8 +589,8 @@ void Globals::save_progress() {
     FILES->set(Value(prof + "/profile.jkr"), sp->get(K("PROFILE")));
 }
 
-void Globals::save_notify(const Value &) {
-    // TODO(saves): queue the unlock notification for the save manager thread
+void Globals::save_notify(const Value &card) {
+    save_manager_request(vl::T({{"type", "save_notify"}, {"save_notify", fld(card, "key")}, {"profile_num", SETTINGS->get(K("profile"))}}));
 }
 
 void Globals::save_settings() {
@@ -932,7 +1010,7 @@ void Globals::main_menu(std::string_view change_context) {
 void Globals::update(double dt) {
     FRAMES.MOVE++;
     // TODO(tutorial): G.FUNCS.tutorial_controller() while the tutorial is not complete
-    // TODO(audio): modulate_sound(dt)
+    modulate_sound(dt);
     update_canvas_juice(dt);
     TIMERS.REAL += dt;
     TIMERS.REAL_SHADER = reduced_motion() ? 300 : TIMERS.REAL;
@@ -984,7 +1062,49 @@ void Globals::update(double dt) {
         v->states.collide.is = false;
     });
     CONTROLLER->update(real_dt);
-    // TODO(run): loc_blind_states refresh, save handler queue, profile version bookkeeping
+    // TODO(run): loc_blind_states refresh
+
+    // profile versions
+    Table *counters = SETTINGS->get(K("profile_counters")).table();
+    PROFILES->each([&](const Value &k, const Value &v) {
+        Table *p = v.table();
+        if (!p || !counters) return;
+        Value ver = p->get(K("ver"));
+        if (ver.truthy() && ver.num() > counters->get(k).num()) counters->set(k, ver);
+        if (!ver.truthy() || ver.num() < counters->get(k).num()) p->set("ver", counters->get(k));
+    });
+    if (Table *cur = PROFILES->get(SETTINGS->get(K("profile"))).table()) cur->set("deleted", Value());
+
+    // Save every F_SAVE_TIMER seconds, unless forced or paused/unpaused
+    Table *fh = FILE_HANDLER.get();
+    if (fh && fh->get(K("update_queued")).truthy() &&
+        (fh->get(K("force")).truthy() || fh->get(K("last_sent_stage")).num() != STAGE ||
+         (fh->get(K("last_sent_pause")).truthy() != paused() && fh->get(K("run")).truthy()) || !fh->get(K("last_sent_time")).truthy() ||
+         fh->get(K("last_sent_time")).num() < TIMERS.UPTIME - F_SAVE_TIMER)) {
+        if (fh->get(K("run")).truthy()) {
+            save_manager_request(vl::T({{"type", "save_run"}, {"save_table", ARGS->get(K("save_run"))}, {"profile_num", SETTINGS->get(K("profile"))}}));
+            Value sr = ARGS->get(K("save_run"));
+            FILES->set(Value(SETTINGS->get(K("profile")).to_string() + "/save.jkr"), sr.is_table() ? Value(sr.table()->deep_copy()) : Value());
+        }
+        if (fh->get(K("progress")).truthy()) {
+            save_manager_request(vl::T({{"type", "save_progress"}, {"save_progress", ARGS->get(K("save_progress"))}}));
+        } else if (fh->get(K("empty_profile")).truthy()) {
+            save_manager_request(vl::T({{"type", "empty_profile"},
+                                        {"save_settings", ARGS->get(K("save_settings"))},
+                                        {"profile_num", fh->get(K("empty_profile"))},
+                                        {"save_profile", PROFILES->get(fh->get(K("empty_profile")))}}));
+        } else if (fh->get(K("settings")).truthy()) {
+            save_manager_request(vl::T({{"type", "save_settings"},
+                                        {"save_settings", ARGS->get(K("save_settings"))},
+                                        {"profile_num", SETTINGS->get(K("profile"))},
+                                        {"save_profile", PROFILES->get(SETTINGS->get(K("profile")))}}));
+        }
+        fh->set("force", false);
+        fh->set("last_sent_stage", STAGE);
+        fh->set("last_sent_time", TIMERS.UPTIME);
+        fh->set("last_sent_pause", paused());
+        for (const char *k : {"settings", "empty_profile", "progress", "metrics", "run"}) fh->set(k, Value());
+    }
 }
 
 // ------------------------------------------------------------------ Game:draw
@@ -1045,15 +1165,20 @@ void Globals::draw() {
             DISABLED_BUTTONS = nullptr;
         }
     }
-    if (OVERLAY_MENU && OVERLAY_MENU.get() != CONTROLLER->dragging.target.get()) draw_node(OVERLAY_MENU.get());
+    update_overlay_zoom();
+    auto draw_maybe_zoomed = [&](Node *v) {
+        if (overlay_zoom.on && in_overlay(v)) draw_zoomed(v);
+        else draw_node(v);
+    };
+    if (OVERLAY_MENU && OVERLAY_MENU.get() != CONTROLLER->dragging.target.get()) draw_maybe_zoomed(OVERLAY_MENU.get());
     if (debug_tools && debug_tools.get() != CONTROLLER->dragging.target.get()) draw_node(debug_tools.get());
-    I.ALERT.each([](Node *v) { draw_node(v); });
+    I.ALERT.each([&](Node *v) { draw_maybe_zoomed(v); });
     if (CONTROLLER->dragging.target && CONTROLLER->dragging.target != CONTROLLER->focused.target)
         draw_node(CONTROLLER->dragging.target.get());
     if (Card *fc = dynamic_cast<Card *>(CONTROLLER->focused.target.get())) {
         if (!(hand && fc->area == hand.get()) || CONTROLLER->focused.target == CONTROLLER->dragging.target) draw_node(fc);
     }
-    I.POPUP.each([](Node *v) { draw_node(v); });
+    I.POPUP.each([&](Node *v) { draw_maybe_zoomed(v); });
     if (achievement_notification) draw_node(achievement_notification.get());
     if (screenwipe) draw_node(screenwipe.get());
     gfx::push();

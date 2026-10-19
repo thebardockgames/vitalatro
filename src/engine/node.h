@@ -46,6 +46,7 @@ public:
     void set(std::string_view name, Node *n) { set(intern(name), n); }
     void push(Node *n);
     void remove_index(int i);      // table.remove(children, i) on the array part
+    void swap(int i, int j) { std::swap(array_[i], array_[j]); }  // SWAP(children, i, j), 0-based
     void remove(Node *n);          // remove wherever it is (array or named)
     int count() const { return (int)array_.size(); }
     Node *at(int i) const { return array_[i].get(); }  // array part, 0-based
@@ -131,6 +132,7 @@ public:
     TableRef config = new_table();
     bool REMOVED = false;
     bool under_overlay = false;
+    bool zoomed = false;  // drawn inside the enlarged overlay menu last frame (G.overlay_zoom)
     Node *parent = nullptr;  // non-owning (UI parent / attach parent)
     Value DEBUG_VALUE;
     bool CALCING = false;

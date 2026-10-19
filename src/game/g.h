@@ -94,6 +94,9 @@ struct Globals {
     bool F_QUIT_BUTTON = false, F_SKIP_TUTORIAL = false, F_ENGLISH_ONLY = false, F_GUIDE = false;
     bool F_CRASH_REPORTS = false, F_NO_ACHIEVEMENTS = false, F_EXTERNAL_LINKS = false;
     bool F_PS4_PLAYSTATION_GLYPHS = true;  // Vita face buttons match the PS4 glyph row
+    bool F_MUTE = false;
+    double PITCH_MOD = 1, SPLASH_VOL = 1;  // G.SPLASH_VOL starts nil: "or 1"
+    bool normal_music_speed = false;
     bool F_SWAP_AB_PIPS = false, F_SWAP_AB_BUTTONS = false, F_SWAP_XY_BUTTONS = false;
     double F_RUMBLE = 0;
     int F_SAVE_TIMER = 30;
@@ -195,6 +198,19 @@ struct Globals {
     double last_materialized = 0;
     bool has_last_materialized = false;
     bool VIEWING_DECK = false;
+    std::string viewed_collab;  // G.viewed_collab
+    // Vitalatro: overlay menus drawn enlarged about the screen centre to fill the small screen
+    // (SETTINGS.vl_large_menus). Positions are in screen units (tiles).
+    struct OverlayZoom {
+        bool on = false;
+        float s = 1, cx = 0, cy = 0;
+        XY zoom(XY p) const { return on ? XY{cx + (p.x - cx) * s, cy + (p.y - cy) * s} : p; }
+        XY unzoom(XY p) const { return on ? XY{cx + (p.x - cx) / s, cy + (p.y - cy) / s} : p; }
+    } overlay_zoom;
+    bool drawing_zoomed = false;
+    int focused_profile = 1;    // G.focused_profile
+    int CHECK_PROFILE_DATA = -1;  // G.CHECK_PROFILE_DATA: -1 nil, 0 false, 1 true
+    TableRef collab_credits;    // G.collab_credits (built by the credits' Collabs tab)
     int TAROT_INTERRUPT = 0;
     bool screenglitch = false;
     double screenwipe_amt = 1;
@@ -227,6 +243,7 @@ struct Globals {
     TableRef init_game_object();
     void init_item_prototypes();
     void load_profile(int profile);
+    void empty_profile(int profile);
     void set_language();
     void set_render_settings();
     void save_progress();

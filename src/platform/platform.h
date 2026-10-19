@@ -10,7 +10,9 @@ void init();
 bool read_file(const char *path, std::string &out);
 // Save data lives elsewhere (ux0:data/Vitalatro on Vita).
 bool read_save(const char *path, std::string &out);
-bool write_save(const char *path, const std::string &data);
+bool write_save(const char *path, const std::string &data);  // atomic: temp file + rename
+bool remove_save(const char *path);
+void make_save_dir(const char *name);  // a subdirectory of the save root (profile folders)
 [[noreturn]] void fatal(const char *fmt, ...);
 void log(const char *fmt, ...);
 
@@ -30,6 +32,30 @@ void poll_input(Input &in);
 // Runs job on a worker thread (a native thread with a small stack on the Vita). When no thread
 // can be created the job runs right away on the calling thread.
 void run_async(std::function<void()> job);
+// A worker that never returns (a request loop): it cannot run inline, so failing is fatal.
+void run_thread(std::function<void()> loop);
+
+// Thread primitives that work on any thread the platform creates (on the Vita, newlib's pthread
+// layer does not support condition variables on native kernel threads).
+class Mutex {
+  public:
+    Mutex();
+    ~Mutex();
+    void lock();
+    void unlock();
+  private:
+    void *h_;
+};
+class Semaphore {  // counting
+  public:
+    Semaphore();
+    ~Semaphore();
+    void post();
+    void wait();
+    bool try_wait();
+  private:
+    void *h_;
+};
 
 // Free memory in MB (user RAM, CDRAM); -1 when unknown.
 void free_memory_mb(int &user, int &cdram);

@@ -79,6 +79,7 @@ void Node::draw() {
 
 bool Node::collides_with_point(XY point) {
     if (!container) return false;
+    if (zoomed) point = G.overlay_zoom.unzoom(point);
     Transform *t = CT ? CT : T;
     float b = states.hover.is ? G.COLLISION_BUFFER : 0;
     XY p = point;
@@ -133,7 +134,9 @@ void Node::set_container(Node *c) {
 
 XY Node::put_focused_cursor() {
     float s = G.TILESCALE * G.TILESIZE;
-    return {(T->x + T->w / 2 + container->T->x) * s, (T->y + T->h / 2 + container->T->y) * s};
+    XY p{T->x + T->w / 2 + container->T->x, T->y + T->h / 2 + container->T->y};
+    if (zoomed) p = G.overlay_zoom.zoom(p);
+    return {p.x * s, p.y * s};
 }
 
 float Node::fast_mid_dist(Node *o) {

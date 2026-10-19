@@ -132,7 +132,8 @@ def main():
     # strings in the game's code (UI labels etc.) are rendered with the current language's font
     code_chars = set()
     for p in list(game_dir.glob('*.lua')) + list((game_dir / 'functions').glob('*.lua')) + list((game_dir / 'engine').glob('*.lua')):
-        code_chars |= {c for c in chars_of_lua_strings(p.read_text(encoding='utf-8')) if ord(c) < 0x2000}
+        # (general punctuation such as the credits' em dash included: a glyph the font lacks bakes as its .notdef, as LOVE draws it)
+        code_chars |= {c for c in chars_of_lua_strings(p.read_text(encoding='utf-8')) if ord(c) < 0x3000}
     ascii_set = {chr(c) for c in range(32, 127)}
 
     for font_id, (file, size, langs) in FONTS.items():

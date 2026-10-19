@@ -16,6 +16,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(VL_ASSETS "${CMAKE_SOURCE_DIR}/build/assets_${VL_TARGET}" CACHE PATH "assets directory")
 
 set(COMMON_SRC
+  src/audio/mixer.cpp
+  src/core/stb_impl.cpp
   src/core/value.cpp
   src/gfx/gfx.cpp
   src/gfx/shaders.cpp
@@ -38,6 +40,7 @@ set(COMMON_SRC
   src/game/misc_functions.cpp
   src/game/render.cpp
   src/game/run.cpp
+  src/game/save_manager.cpp
   src/game/sound.cpp
   src/game/ui_definitions.cpp
   src/m0/m0.cpp
@@ -53,6 +56,7 @@ if(VL_TARGET STREQUAL "vita")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -mcpu=cortex-a9 -mfpu=neon")
 
   add_executable(vitalatro ${COMMON_SRC}
+    src/audio/output_vita.cpp
     src/gfx/gxm/backend_gxm.cpp
     src/platform/vita/platform_vita.cpp
     src/main_vita.cpp)
@@ -83,6 +87,7 @@ if(VL_TARGET STREQUAL "vita")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -Wall")
   add_executable(vitalatro_pc ${COMMON_SRC}
+    src/audio/output_pc.cpp
     src/gfx/gl/backend_gl.cpp
     src/platform/pc/platform_pc.cpp
     src/main_pc.cpp)

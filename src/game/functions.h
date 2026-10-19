@@ -27,6 +27,8 @@ std::vector<Card *> find_joker(std::string_view name, bool non_debuff = false);
 Value get_joker_win_sticker(const Value &center);
 int get_joker_win_sticker_index(const Value &center);
 int get_deck_win_stake(const Value &key);
+// data/<name>.lua, extracted from the game at build time (fatal when missing)
+TableRef load_data(const std::string &name);
 void set_profile_progress();
 void set_discover_tallies();
 void init_localization();
@@ -50,6 +52,7 @@ void set_screen_positions();
 void ease_value(ValueRef ref, double mod, bool floored = false, const EventTimer *timer = nullptr, double delay = 0.3,
                 EaseType ease = EaseType::Lerp);
 void ease_background_colour(const TableRef &args);
+void ease_colour(const TableRef &old_colour, const Value &new_colour, double delay = 0.3);
 void delay(double time, EventManager::Queue queue = EventManager::BASE);
 void set_alerts();
 void set_main_menu_UI();

@@ -85,6 +85,10 @@ bool write_save(const char *path, const std::string &data) {
     return sceIoRename(tmp.c_str(), full.c_str()) >= 0;
 }
 
+bool remove_save(const char *path) { return sceIoRemove((std::string(kSaveRoot) + path).c_str()) >= 0; }
+
+void make_save_dir(const char *name) { sceIoMkdir((std::string(kSaveRoot) + name).c_str(), 0777); }
+
 namespace {
 // Log lines are appended to the memory card by a worker thread: opening and writing the file costs
 // tens of milliseconds, which showed up as frame spikes.
@@ -200,6 +204,30 @@ void run_async(std::function<void()> job) {
         delete heap_job;
     }
 }
+
+void run_thread(std::function<void()> loop) {
+    auto *heap_job = new std::function<void()>(std::move(loop));
+    SceUID t = sceKernelCreateThread("vl_loop", async_entry, 0x10000100 + 20, 256 * 1024, 0, 0x20000 | 0x40000, nullptr);
+    if (t < 0 || sceKernelStartThread(t, sizeof heap_job, &heap_job) < 0) fatal("run_thread: no thread (0x%08x)", (unsigned)t);
+}
+
+Mutex::Mutex() {
+    auto *w = new SceKernelLwMutexWork;
+    sceKernelCreateLwMutex(w, "vl_mutex", 0, 0, nullptr);
+    h_ = w;
+}
+Mutex::~Mutex() {
+    sceKernelDeleteLwMutex((SceKernelLwMutexWork *)h_);
+    delete (SceKernelLwMutexWork *)h_;
+}
+void Mutex::lock() { sceKernelLockLwMutex((SceKernelLwMutexWork *)h_, 1, nullptr); }
+void Mutex::unlock() { sceKernelUnlockLwMutex((SceKernelLwMutexWork *)h_, 1); }
+
+Semaphore::Semaphore() { h_ = (void *)(intptr_t)sceKernelCreateSema("vl_sema", 0, 0, 1 << 20, nullptr); }
+Semaphore::~Semaphore() { sceKernelDeleteSema((SceUID)(intptr_t)h_); }
+void Semaphore::post() { sceKernelSignalSema((SceUID)(intptr_t)h_, 1); }
+void Semaphore::wait() { sceKernelWaitSema((SceUID)(intptr_t)h_, 1, nullptr); }
+bool Semaphore::try_wait() { return sceKernelPollSema((SceUID)(intptr_t)h_, 1) == 0; }
 
 void free_memory_mb(int &user, int &cdram) {
     SceKernelFreeMemorySizeInfo info{};

@@ -1,9 +1,12 @@
 // PC (Linux/WSL) platform for the headless test build: no window, no input. Data is read from
 // the directory given by VL_DATA (defaults to ./data).
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -41,15 +44,33 @@ bool read_whole(const std::string &p, std::string &out) {
 void init() {
     if (const char *d = std::getenv("VL_DATA")) g_root = std::string(d) + "/";
     if (const char *s = std::getenv("VL_SAVE")) g_save = std::string(s) + "/";
+    std::error_code ec;
+    std::filesystem::create_directories(g_save, ec);
 }
 
 bool read_file(const char *path, std::string &out) { return read_whole(g_root + path, out); }
 bool read_save(const char *path, std::string &out) { return read_whole(g_save + path, out); }
 bool write_save(const char *path, const std::string &data) {
-    std::ofstream f(g_save + path, std::ios::binary);
-    if (!f) return false;
-    f << data;
-    return (bool)f;
+    std::string full = g_save + path, tmp = full + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary);
+        if (!f) return false;
+        f << data;
+        if (!f) return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, full, ec);
+    return !ec;
+}
+
+bool remove_save(const char *path) {
+    std::error_code ec;
+    return std::filesystem::remove(g_save + path, ec);
+}
+
+void make_save_dir(const char *name) {
+    std::error_code ec;
+    std::filesystem::create_directories(g_save + name, ec);
 }
 
 void log(const char *fmt, ...) {
@@ -128,6 +149,43 @@ void poll_input(Input &in) {
 }
 
 void run_async(std::function<void()> job) { std::thread(std::move(job)).detach(); }
+void run_thread(std::function<void()> loop) { std::thread(std::move(loop)).detach(); }
+
+Mutex::Mutex() : h_(new std::mutex) {}
+Mutex::~Mutex() { delete (std::mutex *)h_; }
+void Mutex::lock() { ((std::mutex *)h_)->lock(); }
+void Mutex::unlock() { ((std::mutex *)h_)->unlock(); }
+
+namespace {
+struct Sema {
+    std::mutex m;
+    std::condition_variable cv;
+    int count = 0;
+};
+}  // namespace
+Semaphore::Semaphore() : h_(new Sema) {}
+Semaphore::~Semaphore() { delete (Sema *)h_; }
+void Semaphore::post() {
+    Sema *s = (Sema *)h_;
+    {
+        std::lock_guard<std::mutex> l(s->m);
+        s->count++;
+    }
+    s->cv.notify_one();
+}
+void Semaphore::wait() {
+    Sema *s = (Sema *)h_;
+    std::unique_lock<std::mutex> l(s->m);
+    s->cv.wait(l, [s] { return s->count > 0; });
+    s->count--;
+}
+bool Semaphore::try_wait() {
+    Sema *s = (Sema *)h_;
+    std::lock_guard<std::mutex> l(s->m);
+    if (s->count == 0) return false;
+    s->count--;
+    return true;
+}
 
 void free_memory_mb(int &user, int &cdram) { user = cdram = -1; }
 

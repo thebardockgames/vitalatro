@@ -10,6 +10,7 @@
 #include "game/sound.h"
 #include "game/ui_definitions.h"
 #include "gfx/gfx.h"
+#include "platform/platform.h"
 
 namespace vl {
 
@@ -214,6 +215,8 @@ void UIBox::calculate_xywh(UIElement *node, Transform &T0, bool recalculate, flo
                 node->config->set(K("text"), Value(rt.get(rv).to_string()));
                 if (cb(node->config, K("func")) && !recalculate) call_func(cv(node->config, K("func")), node);
             }
+            // text = 1 (a number) prints like tostring, as LOVE does
+            if (cv(node->config, K("text")).is_num()) node->config->set(K("text"), Value(cv(node->config, K("text")).to_string()));
             if (!cb(node->config, K("text"))) node->config->set(K("text"), "[UI ERROR]");
             if (!cb(node->config, K("lang"))) node->config->set(K("lang"), Value((Object *)G.LANG));
             LangDef *lang = cv(node->config, K("lang")).as<LangDef>();
@@ -353,7 +356,33 @@ void UIBox::remove() {
     UIRoot = nullptr;  // break the box <-> root cycle
 }
 
+namespace {
+// the first text in a UI definition: names a box in diagnostics
+std::string first_text(const Value &n, int depth = 0) {
+    if (!n.is_table() || depth > 12) return std::string();
+    Value cfg = n.get(Value(intern("config")));
+    Value t = cfg.get(Value(intern("text")));
+    if (t.is_str()) return t.to_string();
+    Value id = cfg.get(Value(intern("id")));
+    std::string r;
+    if (Table *nodes = n.get(Value(intern("nodes"))).table())
+        nodes->each([&](const Value &, const Value &c) {
+            if (r.empty()) r = first_text(c, depth + 1);
+        });
+    if (r.empty() && id.is_str()) r = "#" + id.to_string();
+    return r;
+}
+}  // namespace
+
 void UIBox::draw() {
+    if (!UIRoot) {
+        // a removed box something still draws (seen once on the Vita): skip it and say which
+        static int reported = 0;
+        if (reported++ < 5)
+            platform::log("draw: removed UIBox '%s' (parent %p, major %p)", first_text(Value(definition)).c_str(), (void *)parent,
+                          (void *)role.major.get());
+        return;
+    }
     if (FRAME.DRAW >= G.FRAMES.DRAW && !G.OVERLAY_TUTORIAL) return;
     FRAME.DRAW = G.FRAMES.DRAW;
     children.each([](Str *name, Node *c) {

@@ -608,7 +608,7 @@ void Controller::key_press_update(const std::string &key_in, double) {
     if (text_input_hook) {
         if (key == "escape") text_input_hook = nullptr;
         else if (key == "capslock") capslock = !capslock;
-        // TODO(text input): G.FUNCS.text_input_key{e, key, caps}; the Vita uses the system IME instead
+        else text_input_key(key, held_keys["lshift"] || held_keys["rshift"]);
         return;
     }
 
@@ -844,8 +844,10 @@ void Controller::update_focus(char dir) {
                 cp = {ft->T->x + 0.5f * ft->T->w, ft->T->y + 0.5f * ft->T->h};
             } else if (hovering.target && hovering.target->states.focus.can) {
                 cp = hovering.target->put_focused_cursor();
-                cp.x = cp.x / px_per_unit() - G.ROOM->T->x;
-                cp.y = cp.y / px_per_unit() - G.ROOM->T->y;
+                cp = {cp.x / px_per_unit(), cp.y / px_per_unit()};
+                if (hovering.target->zoomed) cp = G.overlay_zoom.unzoom(cp);
+                cp.x -= G.ROOM->T->x;
+                cp.y -= G.ROOM->T->y;
             }
             for (auto &vr : focusables) {
                 Node *v = vr.get();

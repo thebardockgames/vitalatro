@@ -2,14 +2,17 @@
 #include "game/ui_definitions.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
+#include "core/lua_sort.h"
 #include "engine/controller.h"
 #include "engine/event.h"
 #include "engine/sprite.h"
 #include "engine/text.h"
 #include "engine/ui.h"
+#include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
 
@@ -388,7 +391,11 @@ TableRef settings_tab(const Value &tab) {
                                                            {"options", localize("ml_smoothing_opt")}, {"opt_callback", "change_pixel_smoothing"},
                                                            {"current_option", fld(gr, "texture_scaling")}})));
         Value crt = Value(create_slider(vl::T({{"label", localize("b_set_CRT")}, {"w", 4}, {"h", 0.4}, {"ref_table", gr}, {"ref_value", "crt"}, {"min", 0}, {"max", 100}})));
-        return root(A({shadows, smoothing, crt}));
+        // Vitalatro: no localization exists for it; Spanish for the es_* languages, English otherwise
+        bool es = G.LANG && G.LANG->key.compare(0, 2, "es") == 0;
+        Value large = Value(create_toggle(vl::T({{"label", es ? "Men\u00fas grandes" : "Large menus"},
+                                                 {"ref_table", Value(G.SETTINGS)}, {"ref_value", "vl_large_menus"}})));
+        return root(A({shadows, smoothing, crt, large}));
     }
     // (the Video tab is never offered: G.F_VIDEO_SETTINGS is off on the Vita)
     return TableRef(node(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("CLEAR")}, {"minh", 5}, {"minw", 5}}), A({})).table());
@@ -672,6 +679,657 @@ TableRef language_selector() {
     }
     // (the language feedback link needs G.F_EXTERNAL_LINKS, which is off)
     return create_UIBox_generic_options(vl::T({{"contents", Value(A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}), rows)}))}}));
+}
+
+// ------------------------------------------------------------------ static UI data
+namespace {
+// G.C.<path> for a colour reference written by the extractor ("UI.TEXT_LIGHT")
+Value colour_at(std::string_view path) {
+    Value v = Value(G.C);
+    while (!path.empty()) {
+        size_t dot = path.find('.');
+        v = v.get(Value(intern(path.substr(0, dot))));
+        path = dot == std::string_view::npos ? std::string_view() : path.substr(dot + 1);
+    }
+    return v;
+}
+}  // namespace
+
+// A fresh copy of an extracted UI definition, with its colour references and builder markers
+// ({__ui = 'UIBox_button', args = ...}) resolved.
+Value ui_data(const Value &v) {
+    Table *t = v.table();
+    if (!t) return v;
+    Value c = t->get(K("__C"));
+    if (c.is_str()) return colour_at(c.str());
+    Value ui = t->get(K("__ui"));
+    if (ui.equals("UIBox_button")) return Value(UIBox_button(TableRef(ui_data(t->get(K("args"))).table())));
+    if (ui.equals("create_option_cycle")) return Value(create_option_cycle(TableRef(ui_data(t->get(K("args"))).table())));
+    TableRef out = new_table();
+    t->each([&](const Value &k, const Value &val) { out->set(k, ui_data(val)); });
+    return Value(out);
+}
+
+// ------------------------------------------------------------------ credits
+namespace {
+TableRef ui_credits() {
+    static TableRef data;
+    if (!data) data = load_data("ui_credits");
+    return data;
+}
+
+TableRef multiline_credit_text(const Value &lines) {
+    TableRef t = new_table();
+    for (int i = 1; lines.get(Value(i)).truthy(); i++)
+        t->push(node(UIT_R, vl::T({{"align", "cl"}, {"padding", 0}}),
+                     A({node(UIT_T, vl::T({{"text", lines.get(Value(i))}, {"scale", 0.28}, {"colour", col("WHITE")}}))})));
+    return t;
+}
+
+TableRef credits_collabs_tab() {
+    if (!G.collab_credits) G.collab_credits = TableRef(ui_data(ui_credits()->get(K("collab_credits"))).table());
+    Value middle = node(UIT_R, vl::T({{"align", "cm"}, {"minh", 4.8}, {"minw", 12.3}}),
+                        A({node(UIT_O, vl::T({{"id", Value()}, {"func", "CREDITS_check_collab"}, {"object", obj(new Moveable(0, 0, 0, 0))}}))}));
+    std::vector<std::string> names;
+    G.collab_credits->each([&](const Value &k, const Value &) { names.push_back(k.to_string()); });
+    std::sort(names.begin(), names.end());  // table.sort: the names are unique strings
+    TableRef options = new_table();
+    for (auto &n : names) options->push(Value(n));
+    G.viewed_collab = names.empty() ? std::string() : names[0];
+    return TableRef(
+        node(UIT_ROOT,
+             vl::T({{"align", "cm"}, {"padding", 0.2}, {"colour", col("L_BLACK")}, {"r", 0.1}, {"emboss", 0.05}, {"minh", 6}, {"minw", 10}}),
+             A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.2}, {"outline_colour", col("JOKER_GREY")}, {"r", 0.1}, {"outline", 1}}),
+                     A({Value(create_option_cycle(vl::T({{"options", Value(options)},
+                                                         {"opt_callback", "change_viewed_collab"},
+                                                         {"current_option", 1},
+                                                         {"colour", col("RED")},
+                                                         {"w", 4},
+                                                         {"mid", middle}})))}))}))
+            .table());
+}
+}  // namespace
+
+TableRef viewed_collab_option() {
+    if (G.viewed_collab.empty()) G.viewed_collab = "The Binding of Isaac";
+    Value curr = G.collab_credits->get(Value(G.viewed_collab));
+    if (!curr.truthy()) curr = G.collab_credits->get(Value("The Binding of Isaac"));
+    SpritePos p;
+    p.x = 2;
+    Sprite *collab_sprite = new Sprite(0, 0, 0.8f * G.CARD_W, 0.8f * G.CARD_H, &G.ASSET_ATLAS[fld(curr, "art").to_string() + "_1"], p);
+
+    Value ml = fld(curr, "ml_text");
+    Value artist = fld(curr, "artist"), link = fld(curr, "artist_link");
+    auto text_row = [](const Value &text, const Value &colour) {
+        return node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
+                    A({node(UIT_T, vl::T({{"text", text}, {"scale", 0.3}, {"colour", colour}}))}));
+    };
+    Value art_box = artist.truthy()
+                        ? node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.07}, {"r", 0.1}, {"outline", 0.7}, {"outline_colour", col("WHITE")}}),
+                               A({text_row("Art created by:", col("WHITE")), text_row(artist, col("GOLD")),
+                                  link.truthy() ? text_row(link, col("BLUE")) : Value()}))
+                        : Value();
+    TableRef rights = multiline_credit_text(Value(A({"All rights reserved. No part of this work may be",
+                                                     "reproduced in any form or by any means\xE2\x80\x94 graphic,",
+                                                     "electronic, or mechanical, including recording,",
+                                                     "online distribution, or information storage and retrieval",
+                                                     "systems\xE2\x80\x94without the written permission of the publisher",
+                                                     "or the designated rightsholder, as applicable."})));
+    return TableRef(
+        node(UIT_ROOT, vl::T({{"align", "cm"}, {"colour", col("BLACK")}, {"r", 0.1}}),
+             A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}),
+                     A({node(UIT_T, vl::T({{"text", Value(G.viewed_collab)}, {"scale", 0.5}, {"colour", col("WHITE")}}))})),
+                node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
+                     A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.1}, {"minw", 9}, {"minh", 4.2}}),
+                             A({node(UIT_R, vl::T({{"align", "cl"}, {"padding", 0}}), rights),
+                                ml.truthy() ? node(UIT_R, vl::T({{"align", "cl"}, {"padding", 0}}), multiline_credit_text(ml)) : Value()})),
+                        node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.1}, {"minw", 3}, {"minh", 4.2}}),
+                             A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.0}}),
+                                     A({node(UIT_R, vl::T({{"align", "cm"}, {"colour", col("WHITE")}, {"r", 0.3}}),
+                                             A({node(UIT_O, vl::T({{"colour", col("BLUE")},
+                                                                   {"object", obj(collab_sprite)},
+                                                                   {"hover", true},
+                                                                   {"can_collide", false}}))}))})),
+                                art_box}))}))}))
+            .table());
+}
+
+TableRef credits() {
+    TableRef tabs = new_table();
+    ui_credits()->get(K("tabs")).table()->each([&](const Value &, const Value &tab) {
+        Value def = fld(tab, "definition");
+        Func *f = def.truthy() ? new Func([def](const Value &) { return ui_data(def); })
+                               : new Func([](const Value &) { return Value(credits_collabs_tab()); });
+        TableRef t = vl::T({{"label", fld(tab, "label")}, {"tab_definition_function", Value((Object *)f)}});
+        if (fld(tab, "chosen").truthy()) t->set("chosen", true);
+        tabs->push(Value(t));
+    });
+    return create_UIBox_generic_options(vl::T(
+        {{"contents", Value(A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
+                                    A({Value(create_tabs(vl::T({{"tabs", Value(tabs)}, {"snap_to_nav", true}})))}))}))}}));
+}
+
+// ------------------------------------------------------------------ customize deck
+TableRef create_UIBox_customize_deck() {
+    auto tab = [](const char *suit, bool chosen) {
+        TableRef t = vl::T({{"label", localize(suit, "suits_plural")},
+                            {"tab_definition_function", Value((Object *)new Func([](const Value &s) { return Value(custom_deck_tab(s.str())); }))},
+                            {"tab_definition_function_args", suit}});
+        if (chosen) t->set("chosen", true);
+        return Value(t);
+    };
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", "options"},
+         {"contents",
+          Value(A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
+                        A({Value(create_tabs(vl::T({{"tabs", Value(A({tab("Spades", true), tab("Hearts", false), tab("Clubs", false), tab("Diamonds", false)}))},
+                                                    {"snap_to_nav", true},
+                                                    {"no_shoulders", true}})))}))}))}}));
+}
+
+TableRef custom_deck_tab(std::string_view suit) {
+    TableRef t = new_table();
+    CardArea *face_cards = new CardArea(0, 0, 4 * G.CARD_W, 1.4f * G.CARD_H, vl::T({{"card_limit", 3}, {"type", "title"}, {"highlight_limit", 0}}));
+    t->push(node(UIT_R, vl::T({{"align", "cm"}, {"colour", col("BLACK")}, {"r", 0.1}, {"padding", 0.07}, {"no_fill", true}}),
+                 A({node(UIT_O, vl::T({{"object", obj(face_cards)}}))})));
+
+    // the localized names are keyed "1", "2", ...: numbered for the cycle (G.F_BABYNAMES is off)
+    TableRef loc_options = new_table();
+    if (Table *lo = localize(suit, "collabs").table())
+        lo->each([&](const Value &k, const Value &v) { loc_options->set(Value(std::strtod(k.to_string().c_str(), nullptr)), v); });
+
+    int current_option = 1;
+    Value custom = fld(fld(Value(G.SETTINGS), "CUSTOM_DECK"), "Collabs").get(Value(suit));
+    if (Table *opts = fld(fld(Value(G.COLLABS), "options"), std::string(suit).c_str()).table())
+        opts->each([&](const Value &k, const Value &v) {
+            if (custom.is_str() && v.is_str() && custom.str() == v.str()) current_option = (int)k.num();
+        });
+
+    t->push(node(UIT_R, vl::T({{"align", "cm"}}),
+                 A({Value(create_option_cycle(vl::T({{"options", Value(loc_options)},
+                                                     {"w", 5.5},
+                                                     {"cycle_shoulders", true},
+                                                     {"curr_suit", Value(std::string(suit))},
+                                                     {"opt_callback", "change_collab"},
+                                                     {"current_option", current_option},
+                                                     {"colour", col("RED")},
+                                                     {"focus_args", Value(vl::T({{"snap_to", true}, {"nav", "wide"}}))}})))})));
+    t->push(Value(create_toggle(vl::T({{"label", localize("b_high_contrast_cards")},
+                                       {"ref_table", Value(G.SETTINGS)},
+                                       {"ref_value", "colourblind_option"},
+                                       {"callback", "refresh_contrast_mode"}}))));
+
+    for (const char *face : {"K", "Q", "J"}) {
+        std::string card_code = std::string(suit.substr(0, 1)) + "_" + face;
+        Card *card = new Card(0, 0, G.CARD_W * 1.2f, G.CARD_H * 1.2f, G.P_CARDS->get(Value(card_code)), G.P_CENTERS->get(K("c_base")));
+        card->no_ui = true;
+        face_cards->emplace(card);
+    }
+    return TableRef(
+        node(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0}, {"colour", col("CLEAR")}, {"r", 0.1}, {"minw", 7}, {"minh", 4.2}}), t).table());
+}
+
+// ------------------------------------------------------------------ stats
+namespace {
+Value profile_of(const Value &n) { return G.PROFILES->get(n); }
+Value current_profile() { return profile_of(G.SETTINGS->get(K("profile"))); }
+
+Value dyna(const std::string &s, const Value &colour, double scale) {
+    return node(UIT_O, vl::T({{"object", obj(new DynaText(vl::T({{"string", Value(A({Value(s)}))},
+                                                                 {"colours", Value(A({colour}))},
+                                                                 {"shadow", true},
+                                                                 {"float", true},
+                                                                 {"scale", scale}})))}}));
+}
+std::string fmt_int(double v) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.14g", v);
+    return b;
+}
+std::string percent(double tally, double of) { return fmt_int(std::floor(0.01 + 100 * tally / of)) + "%"; }
+}  // namespace
+
+// functions/misc_functions.lua score_number_scale
+double score_number_scale(double scale, const Value &amt) {
+    const double E_SWITCH_POINT = 100000000000.0;
+    if (!amt.is_num()) return 0.7 * scale;
+    double a = amt.num();
+    if (a >= E_SWITCH_POINT) return 0.7 * scale;
+    if (a >= 1000000) return 14 * 0.75 / (std::floor(std::log(a)) + 4) * scale;
+    return 0.75 * scale;
+}
+
+TableRef create_progress_box(const Value &profile_progress, bool smaller) {
+    Value pp = profile_progress.truthy() ? profile_progress : fld(current_profile(), "progress");
+    Table *p = pp.table();
+    auto ratio = [&](const char *k) { return fld(pp, k)["tally"].num() / fld(pp, k)["of"].num(); };
+    // (G.FTP_LOCKED is never set)
+    p->set("overall_tally", ratio("discovered") + ratio("deck_stakes") + ratio("joker_stickers") + ratio("challenges"));
+    p->set("overall_of", 4);
+
+    double text_scale = smaller ? 0.7 : 1;
+    Value bar_colour = fld(profile_of(Value(G.focused_profile)), "all_unlocked").truthy() ? col("RED") : col("BLUE");
+
+    TableRef rows = new_table();
+    for (const char *v : {"collection", "challenges", "joker_stickers", "deck_stake_wins"}) {
+        const char *k = std::strcmp(v, "collection") == 0        ? "discovered"
+                        : std::strcmp(v, "deck_stake_wins") == 0 ? "deck_stakes"
+                                                                 : v;
+        Value tab = fld(pp, k);
+        double tally = fld(tab, "tally").num(), of = fld(tab, "of").num();
+        TableRef filling = A({dyna(percent(tally, of), col("WHITE"), 0.55 * text_scale),
+                              node(UIT_T, vl::T({{"text", Value(" (" + fmt_int(tally) + "/" + fmt_int(of) + ")")},
+                                                 {"scale", 0.35},
+                                                 {"colour", col("JOKER_GREY")}}))});
+        rows->push(node(
+            UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", Value(darken(col("JOKER_GREY"), 0.1f))}, {"emboss", 0.05}}),
+            A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"minw", 3.5 * text_scale}, {"maxw", 3.5 * text_scale}}),
+                    A({node(UIT_T, vl::T({{"text", localize(std::string("k_") + v)},
+                                          {"scale", 0.5 * text_scale},
+                                          {"colour", ui_col("TEXT_LIGHT")},
+                                          {"shadow", true}}))})),
+               node(UIT_C,
+                    vl::T({{"align", "cl"},
+                           {"minh", smaller ? 0.5 : 0.8},
+                           {"r", 0.1},
+                           {"minw", 3.5 * text_scale},
+                           {"colour", col("BLACK")},
+                           {"emboss", 0.05},
+                           {"progress_bar", Value(vl::T({{"max", of},
+                                                         {"ref_table", tab},
+                                                         {"ref_value", "tally"},
+                                                         {"empty_col", col("BLACK")},
+                                                         {"filled_col", Value(adjust_alpha(bar_colour, 0.5f))}}))}}),
+                    A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"minw", 3.5 * text_scale}}), filling)}))})));
+    }
+    return TableRef(
+        node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", col("BLACK")}, {"emboss", 0.05}}),
+             A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}),
+                     A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"minw", 3.5 * text_scale}, {"maxw", 3.5 * text_scale}}),
+                             A({node(UIT_T, vl::T({{"text", localize("k_progress")}, {"scale", 0.5}, {"colour", ui_col("TEXT_LIGHT")}, {"shadow", true}}))})),
+                        node(UIT_C,
+                             vl::T({{"align", "cl"},
+                                    {"minh", 0.6},
+                                    {"r", 0.1},
+                                    {"minw", 3.5 * text_scale},
+                                    {"colour", col("BLACK")},
+                                    {"emboss", 0.05},
+                                    {"progress_bar", Value(vl::T({{"max", fld(pp, "overall_of")},
+                                                                  {"ref_table", pp},
+                                                                  {"ref_value", "overall_tally"},
+                                                                  {"empty_col", col("BLACK")},
+                                                                  {"filled_col", Value(adjust_alpha(bar_colour, 0.5f))}}))}}),
+                             A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"minw", 3.5 * text_scale}}),
+                                     A({dyna(percent(fld(pp, "overall_tally").num(), fld(pp, "overall_of").num()), col("WHITE"), 0.55)}))}))})),
+                node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}), rows)}))
+            .table());
+}
+
+Value create_UIBox_high_scores_row(const char *score) {
+    Value prof = current_profile();
+    Value hs = fld(fld(prof, "high_scores"), score);
+    if (!hs.truthy()) return Value();
+    double label_scale = 0.65 - 0.025 * std::max<double>((double)fld(hs, "label").to_string().size() - 8, 0);
+    const double label_w = 3.5, score_w = 4, h = 0.8;
+    Value amt = fld(hs, "amt");
+    TableRef score_tab;
+    if (std::strcmp(score, "poker_hand") == 0) {
+        Value handname = localize("k_none");
+        double amount = 0;
+        if (Table *hu = fld(prof, "hand_usage").table())
+            hu->each([&](const Value &, const Value &v) {
+                if (fld(v, "count").num() > amount) {
+                    handname = fld(v, "order");
+                    amount = fld(v, "count").num();
+                }
+            });
+        score_tab = A({dyna((amount < 1 ? handname : localize(handname.str(), "poker_hands")).to_string(), col("WHITE"), 0.55),
+                       node(UIT_T, vl::T({{"text", Value(" (" + fmt_int(amount) + ")")}, {"scale", 0.45}, {"colour", col("JOKER_GREY")}}))});
+    } else if (std::strcmp(score, "most_money") == 0) {
+        score_tab = A({dyna(localize("$").to_string() + number_format(amt), col("MONEY"), score_number_scale(0.85, amt))});
+    } else if (std::strcmp(score, "win_streak") == 0) {
+        Value cur = fld(fld(fld(prof, "high_scores"), "current_streak"), "amt");
+        score_tab = A({dyna(number_format(amt), col("WHITE"), score_number_scale(0.85, amt)),
+                       node(UIT_T, vl::T({{"text", Value(" (" + cur.to_string() + ")")}, {"scale", 0.45}, {"colour", col("JOKER_GREY")}}))});
+    } else if (std::strcmp(score, "hand") == 0) {
+        Sprite *chip_sprite = new Sprite(0, 0, 0.4f, 0.4f,
+                                         &G.ASSET_ATLAS[G.SETTINGS->get(K("colourblind_option")).truthy() ? "ui_2" : "ui_1"], SpritePos{});
+        chip_sprite->states.drag.can = false;
+        score_tab = A({node(UIT_C, vl::T({{"align", "cm"}}), A({node(UIT_O, vl::T({{"w", 0.4}, {"h", 0.4}, {"object", obj(chip_sprite)}}))})),
+                       node(UIT_C, vl::T({{"align", "cm"}}),
+                            A({dyna(number_format(amt), col("RED"), std::min(0.75, score_number_scale(1.5, amt)))}))});
+    } else if (std::strcmp(score, "collection") == 0) {
+        double tot = fld(hs, "tot").num();
+        score_tab = A({node(UIT_C, vl::T({{"align", "cm"}}),
+                            A({dyna("%" + fmt_int(std::floor(0.01 + 100 * amt.num() / tot)), col("WHITE"), std::min(0.75, score_number_scale(1.5, amt))),
+                               node(UIT_T, vl::T({{"text", Value(" (" + amt.to_string() + "/" + fmt_int(tot) + ")")},
+                                                  {"scale", 0.45},
+                                                  {"colour", col("JOKER_GREY")}}))}))});
+    } else {
+        score_tab = A({dyna(number_format(amt), col("FILTER"), score_number_scale(0.85, amt))});
+    }
+    return node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", Value(darken(col("JOKER_GREY"), 0.1f))}, {"emboss", 0.05}}),
+                A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"minw", label_w}, {"maxw", label_w}}),
+                        A({node(UIT_T, vl::T({{"text", localize(score, "high_scores")},
+                                              {"scale", label_scale},
+                                              {"colour", ui_col("TEXT_LIGHT")},
+                                              {"shadow", true}}))})),
+                   node(UIT_C, vl::T({{"align", "cl"}, {"minh", h}, {"r", 0.1}, {"minw", score_w}, {"colour", col("BLACK")}, {"emboss", 0.05}}),
+                        A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"minw", score_w}, {"maxw", score_w}}), score_tab)}))}));
+}
+
+TableRef create_UIBox_high_scores() {
+    fetch_achievements();
+    set_profile_progress();
+    set_discover_tallies();
+    TableRef scores = A({create_UIBox_high_scores_row("hand"), create_UIBox_high_scores_row("furthest_round"),
+                         create_UIBox_high_scores_row("furthest_ante"), create_UIBox_high_scores_row("poker_hand"),
+                         create_UIBox_high_scores_row("most_money"), create_UIBox_high_scores_row("win_streak")});
+    G.focused_profile = (int)G.SETTINGS->get(K("profile")).num();
+    TableRef cheevs = new_table();
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", "options"},
+         {"snap_back", true},
+         {"contents",
+          Value(A({node(UIT_C, vl::T({{"align", "cm"}, {"minw", 3}, {"padding", 0.2}, {"r", 0.1}, {"colour", col("CLEAR")}}),
+                        A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}), scores)})),
+                   node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.1}, {"r", 0.1}, {"colour", col("CLEAR")}}),
+                        A({Value(create_progress_box(Value(), false)),
+                           Value(UIBox_button(vl::T({{"button", "usage"},
+                                                     {"label", Value(A({localize("k_card_stats")}))},
+                                                     {"minw", 7.5},
+                                                     {"minh", 1},
+                                                     {"focus_args", Value(vl::T({{"nav", "wide"}}))}})))})),
+                   !G.F_NO_ACHIEVEMENTS ? node(UIT_C, vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", col("CLEAR")}}), cheevs) : Value()}))}}));
+}
+
+TableRef create_UIBox_usage(const Value &args) {
+    Value _type = args[1], _set = args[2];
+    struct Used {
+        double count;
+        Value key;
+    };
+    std::vector<Used> used_cards;
+    double max_amt = 0;
+    if (Table *u = fld(current_profile(), std::string(_type.str()).c_str()).table())
+        u->each([&](const Value &k, const Value &v) {
+            Value c = G.P_CENTERS->get(k);
+            if (c.truthy() && (!_set.truthy() || fld(c, "set").equals(_set.str())) && fld(c, "discovered").truthy()) {
+                used_cards.push_back({fld(v, "count").num(), k});
+                if (fld(v, "count").num() > max_amt) max_amt = fld(v, "count").num();
+            }
+        });
+    Value secondary = col("SECONDARY_SET");
+    lua_sort(used_cards, [](const Used &a, const Used &b) { return a.count > b.count; });
+
+    TableRef histograms = new_table();
+    Value count_col = Value(mix_colours(col("FILTER"), col("WHITE"), 0.8f));
+    for (int i = 0; i < 10; i++) {
+        if (i < (int)used_cards.size()) {
+            const Used &v = used_cards[i];
+            Value center = G.P_CENTERS->get(v.key);
+            Card *card = new Card(0, 0, 0.7f * G.CARD_W, 0.7f * G.CARD_H, Value(), center);
+            card->ambient_tilt = 0.8f;
+            CardArea *cardarea = new CardArea(G.ROOM->T->x + 0.2f * G.ROOM->T->w / 2, G.ROOM->T->h, G.CARD_W * 0.7f, G.CARD_H * 0.7f,
+                                              vl::T({{"card_limit", 2}, {"type", "title"}, {"highlight_limit", 0}}));
+            cardarea->emplace(card);
+            Value bar_col = secondary.get(fld(center, "set"));
+            histograms->push(node(
+                UIT_C, vl::T({{"align", "bm"}, {"minh", 6.2}, {"colour", ui_col("TRANSPARENT_DARK")}, {"r", 0.1}}),
+                A({node(UIT_R, vl::T({{"align", "bm"}}),
+                        A({node(UIT_R, vl::T({{"align", "cm"}, {"minh", 0.7 * G.CARD_H + 0.1}}), A({node(UIT_O, vl::T({{"object", obj(cardarea)}}))})),
+                           node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}),
+                                A({node(UIT_T, vl::T({{"text", Value(fmt_int(v.count))}, {"scale", 0.35}, {"colour", count_col}, {"shadow", true}}))})),
+                           node(UIT_R, vl::T({{"align", "cm"}}),
+                                A({node(UIT_R, vl::T({{"align", "cm"},
+                                                      {"minh", v.count / max_amt * 3.6},
+                                                      {"minw", 0.8},
+                                                      {"colour", bar_col.truthy() ? bar_col : col("RED")},
+                                                      {"res", 0.15},
+                                                      {"r", 0.001}}),
+                                        new_table())}))}))})));
+        } else {
+            histograms->push(node(
+                UIT_C, vl::T({{"align", "bm"}, {"minh", 6.2}, {"colour", ui_col("TRANSPARENT_DARK")}, {"r", 0.1}}),
+                A({node(UIT_R, vl::T({{"align", "bm"}}),
+                        A({node(UIT_R, vl::T({{"align", "cm"}, {"minh", 0.7 * G.CARD_H + 0.1}, {"minw", 0.7 * G.CARD_W}}), new_table()),
+                           node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}),
+                                A({node(UIT_T, vl::T({{"text", "-"}, {"scale", 0.35}, {"colour", count_col}, {"shadow", true}}))})),
+                           node(UIT_R, vl::T({{"align", "cm"}}),
+                                A({node(UIT_R, vl::T({{"align", "cm"}, {"minh", 0.2}, {"minw", 0.8}, {"colour", ui_col("TRANSPARENT_LIGHT")}, {"res", 0.15}, {"r", 0.001}}),
+                                        new_table())}))}))})));
+        }
+    }
+    const char *title = _type.equals("joker_usage")         ? "ph_stat_joker"
+                        : _type.equals("consumeable_usage") ? "ph_stat_consumable"
+                                                            : "ph_stat_voucher";
+    return TableRef(node(UIT_ROOT, vl::T({{"align", "cm"}, {"minw", 3}, {"padding", 0.1}, {"r", 0.1}, {"colour", ui_col("TRANSPARENT_DARK")}}),
+                         A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}),
+                                 A({node(UIT_B, vl::T({{"w", 0.2}, {"h", 0.2}, {"r", 0.1}, {"colour", col("FILTER")}})),
+                                    node(UIT_T, vl::T({{"text", localize(title)}, {"scale", 0.35}, {"colour", col("WHITE")}}))})),
+                            node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}), histograms)}))
+                        .table());
+}
+
+TableRef usage_tabs() {
+    auto tab = [](const char *label, Value args, bool chosen) {
+        TableRef t = vl::T({{"label", localize(label)},
+                            {"tab_definition_function", Value((Object *)new Func([](const Value &a) { return Value(create_UIBox_usage(a)); }))},
+                            {"tab_definition_function_args", args}});
+        if (chosen) t->set("chosen", true);
+        return Value(t);
+    };
+    TableRef tabs = A({tab("b_stat_jokers", Value(A({"joker_usage"})), true), tab("b_stat_consumables", Value(A({"consumeable_usage"})), false),
+                       tab("b_stat_tarots", Value(A({"consumeable_usage", "Tarot"})), false),
+                       tab("b_stat_planets", Value(A({"consumeable_usage", "Planet"})), false),
+                       tab("b_stat_spectrals", Value(A({"consumeable_usage", "Spectral"})), false),
+                       tab("b_stat_vouchers", Value(A({"voucher_usage", "Voucher"})), false)});
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", "high_scores"},
+         {"contents", Value(A({Value(create_tabs(vl::T({{"tabs", Value(tabs)}, {"tab_h", 8}, {"snap_to_nav", true}})))}))}}));
+}
+
+// ------------------------------------------------------------------ text input
+TableRef create_text_input(const TableRef &args) {
+    args->set("colour", Value(args->get(K("colour")).truthy() ? args->get(K("colour")).table()->deep_copy() : col("BLUE").table()->deep_copy()));
+    args->set("hooked_colour", Value(args->get(K("hooked_colour")).truthy() ? args->get(K("hooked_colour")).table()->deep_copy()
+                                                                             : darken(Value(col("BLUE").table()->deep_copy()), 0.3f)));
+    auto def = [&](const char *k, const Value &v) {
+        if (!args->get(Value(intern(k))).truthy()) args->set(k, v);
+    };
+    def("w", 2.5);
+    def("h", 0.7);
+    def("text_scale", 0.4);
+    def("max_length", 16);
+    def("all_caps", false);
+    def("prompt_text", localize("k_enter_text"));
+    args->set("current_prompt_text", "");
+
+    Value ref_table = args->get(K("ref_table")), ref_value = args->get(K("ref_value"));
+    std::string current = ref_table.get(ref_value).to_string();
+    TableRef letters = new_table();
+    TableRef text = vl::T({{"ref_table", ref_table}, {"ref_value", ref_value}, {"letters", Value(letters)}, {"current_position", (double)current.size()}});
+    TableRef ui_letters = new_table();
+    int max_length = (int)args->get(K("max_length")).num();
+    double text_scale = args->get(K("text_scale")).num();
+    for (int i = 1; i <= max_length; i++) {
+        letters->set(i, Value(i <= (int)current.size() ? current.substr(i - 1, 1) : std::string()));
+        ui_letters->push(node(UIT_T, vl::T({{"ref_table", Value(letters)},
+                                            {"ref_value", i},
+                                            {"scale", text_scale},
+                                            {"colour", ui_col("TEXT_LIGHT")},
+                                            {"id", Value("letter_" + std::to_string(i))}})));
+    }
+    args->set("text", Value(text));
+
+    Value position_text_colour = Value(lighten(Value(col("BLUE").table()->deep_copy()), 0.4f));
+    ui_letters->push(node(UIT_T, vl::T({{"ref_table", Value(args)},
+                                        {"ref_value", "current_prompt_text"},
+                                        {"scale", text_scale},
+                                        {"colour", Value(lighten(Value(args->get(K("colour")).table()->deep_copy()), 0.4f))},
+                                        {"id", "prompt"}})));
+    ui_letters->push(node(UIT_B, vl::T({{"r", 0.03}, {"w", 0.1}, {"h", 0.4}, {"colour", position_text_colour}, {"id", "position"}, {"func", "flash"}})));
+
+    return TableRef(
+        node(UIT_C, vl::T({{"align", "cm"}, {"draw_layer", 1}, {"colour", col("CLEAR")}}),
+             A({node(UIT_C, vl::T({{"id", "text_input"}, {"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"draw_layer", 2}, {"hover", true},
+                                   {"colour", args->get(K("colour"))}, {"minw", args->get(K("w"))}, {"min_h", args->get(K("h"))},
+                                   {"button", "select_text_input"}, {"shadow", true}}),
+                     A({node(UIT_R, vl::T({{"ref_table", Value(args)}, {"padding", 0.05}, {"align", "cm"}, {"r", 0.1}, {"colour", col("CLEAR")}}),
+                             A({node(UIT_R, vl::T({{"ref_table", Value(args)}, {"align", "cm"}, {"r", 0.1}, {"colour", col("CLEAR")}, {"func", "text_input"}}),
+                                     ui_letters)}))}))}))
+            .table());
+}
+
+namespace {
+Value create_keyboard_button(const std::string &key, const char *binding) {
+    double overall_scale = G.F_MOBILE ? 1.9 : 1;
+    std::string key_label = key == "backspace" ? "Backspace" : key == " " ? "Space" : key == "back" ? "Back" : key == "return" ? "Enter" : key;
+    double minw = key == " " ? overall_scale * 6 : (key == "return" || key == "backspace" || key == "back") ? overall_scale * 2.5 : overall_scale * 0.8;
+    double minh = (key == "return" || key == "backspace") ? 1.5 : key == "back" ? 0.8 : overall_scale * 0.7;
+    TableRef b = vl::T({{"label", Value(A({Value(key_label)}))},
+                        {"scale", overall_scale * 0.5},
+                        {"button", "key_button"},
+                        {"ref_table", Value(vl::T({{"key", Value(key == "back" ? std::string("return") : key)}}))},
+                        {"minw", minw},
+                        {"minh", minh},
+                        {"col", true},
+                        {"colour", col("GREY")}});
+    if (binding)
+        b->set("focus_args", Value(vl::T({{"button", binding}, {"orientation", (key == " " || key == "back") ? "cr" : "bm"}, {"set_button_pip", true}})));
+    return Value(UIBox_button(b));
+}
+}  // namespace
+
+TableRef create_keyboard_input(const TableRef &args) {
+    const char *keyboard_rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM", args->get(K("space_key")).truthy() ? " " : nullptr};
+    TableRef rows[5];
+    for (int k = 0; k < 5; k++) {
+        rows[k] = new_table();
+        if (!keyboard_rows[k]) continue;
+        for (const char *c = keyboard_rows[k]; *c; c++) rows[k]->push(create_keyboard_button(std::string(1, *c), *c == ' ' ? "y" : nullptr));
+    }
+    Value grey = col("GREY");
+    bool side = args->get(K("backspace_key")).truthy() || args->get(K("return_key")).truthy();
+    auto row = [&](TableRef nodes) { return node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.07}, {"colour", col("CLEAR")}}), nodes); };
+    auto key_row = [&](const char *key, const char *binding) {
+        return node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("CLEAR")}}), A({create_keyboard_button(key, binding)}));
+    };
+    Value side_col = side ? node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("CLEAR")}}),
+                                 A({args->get(K("backspace_key")).truthy() ? key_row("backspace", "x") : Value(),
+                                    args->get(K("return_key")).truthy() ? key_row("return", "start") : Value(), key_row("back", "b")}))
+                          : Value();
+    return TableRef(
+        node(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 15}, {"r", 0.1}, {"colour", Value(A({grey[1], grey[2], grey[3], 0.7}))}}),
+             A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("CLEAR")}}),
+                     A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("BLACK")}, {"emboss", 0.05}, {"r", 0.1}, {"mid", true}}),
+                             A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}),
+                                     A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"colour", col("CLEAR")}}),
+                                             A({row(rows[0]), row(rows[1]), row(rows[2]), row(rows[3]), row(rows[4])})),
+                                        side_col}))}))}))}))
+            .table());
+}
+
+// ------------------------------------------------------------------ profiles
+TableRef profile_select() {
+    if (!G.focused_profile) G.focused_profile = G.SETTINGS->get(K("profile")).truthy() ? (int)G.SETTINGS->get(K("profile")).num() : 1;
+    TableRef tabs = new_table();
+    for (int i = 1; i <= 3; i++) {
+        TableRef t = vl::T({{"label", i},
+                            {"tab_definition_function", Value((Object *)new Func([](const Value &p) { return Value(profile_option((int)p.num())); }))},
+                            {"tab_definition_function_args", i}});
+        if (G.focused_profile == i) t->set("chosen", true);
+        tabs->push(Value(t));
+    }
+    return create_UIBox_generic_options(vl::T(
+        {{"padding", 0},
+         {"contents", Value(A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}, {"draw_layer", 1}, {"minw", 4}}),
+                                    A({Value(create_tabs(vl::T({{"tabs", Value(tabs)}, {"snap_to_nav", true}})))}))}))}}));
+}
+
+TableRef profile_option(int _profile) {
+    set_discover_tallies();
+    G.focused_profile = _profile;
+    G.load_profile(G.focused_profile);
+    Value profile_data = G.FILES->get(Value(std::to_string(_profile) + "/profile.jkr"));
+    if (!profile_data.is_table() || profile_data.table()->empty() || fld(profile_data, "deleted").truthy()) profile_data = Value();
+    if (profile_data.truthy() && !fld(profile_data, "name").truthy()) profile_data.table()->set("name", Value("P" + std::to_string(_profile)));
+    Value prof = G.PROFILES->get(_profile);
+    prof.table()->set("name", profile_data.truthy() ? fld(profile_data, "name") : Value(""));
+
+    const double lwidth = 1, rwidth = 1, scale = 1;
+    G.CHECK_PROFILE_DATA = -1;
+    int current = (int)G.SETTINGS->get(K("profile")).num();
+    Value name_row =
+        (_profile == current || !profile_data.truthy())
+            ? node(UIT_R, vl::T({{"align", "cm"}}),
+                   A({Value(create_text_input(vl::T({{"w", 4},
+                                                     {"max_length", 16},
+                                                     {"prompt_text", localize("k_enter_name")},
+                                                     {"ref_table", prof},
+                                                     {"ref_value", "name"},
+                                                     {"extended_corpus", true},
+                                                     {"keyboard_offset", 2},
+                                                     {"callback", Value((Object *)new Func([](const Value &) {
+                                                          G.save_settings();
+                                                          G.FILE_HANDLER->set("force", true);
+                                                          return Value();
+                                                      }))}})))}))
+            : node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}, {"minw", 4}, {"r", 0.1}, {"colour", col("BLACK")}, {"minh", 0.6}}),
+                   A({node(UIT_T, vl::T({{"text", fld(prof, "name")}, {"scale", 0.45}, {"colour", col("WHITE")}}))}));
+    Value progress = fld(prof, "progress");
+    Value progress_col = (progress.truthy() && fld(progress, "discovered").truthy())
+                             ? Value(create_progress_box(progress, true))
+                             : node(UIT_C, vl::T({{"align", "cm"}, {"minh", 4}, {"minw", 5.2}, {"colour", col("BLACK")}, {"r", 0.1}}),
+                                    A({node(UIT_T, vl::T({{"text", localize("k_empty_caps")}, {"scale", 0.5}, {"colour", ui_col("TRANSPARENT_LIGHT")}}))}));
+    Value wins = profile_data.truthy()
+                     ? node(UIT_R, vl::T({{"align", "cm"}}),
+                            A({node(UIT_C, vl::T({{"align", "cm"}, {"minw", lwidth}}),
+                                    A({node(UIT_T, vl::T({{"text", localize("k_wins")}, {"colour", ui_col("TEXT_LIGHT")}, {"scale", scale * 0.7}}))})),
+                               node(UIT_C, vl::T({{"align", "cm"}}),
+                                    A({node(UIT_T, vl::T({{"text", ": "}, {"colour", ui_col("TEXT_LIGHT")}, {"scale", scale * 0.7}}))})),
+                               node(UIT_C, vl::T({{"align", "cl"}, {"minw", rwidth}}),
+                                    A({node(UIT_T, vl::T({{"text", Value(fld(fld(profile_data, "career_stats"), "c_wins").to_string())},
+                                                          {"colour", col("RED")},
+                                                          {"shadow", true},
+                                                          {"scale", 1 * scale}}))}))}))
+                     : Value();
+    auto button = [&](double minw, double maxw, double minh, const Value &colour, const char *func, const char *btn, const Value &text, double tscale) {
+        return node(UIT_R, vl::T({{"align", "cm"}, {"minw", minw}, {"maxw", maxw}, {"minh", minh}, {"padding", 0.2}, {"r", 0.1}, {"hover", true},
+                                  {"colour", colour}, {"func", func}, {"button", btn}, {"shadow", true},
+                                  {"focus_args", Value(vl::T({{"nav", "wide"}}))}}),
+                    A({node(UIT_T, vl::T({{"text", text}, {"scale", tscale}, {"colour", ui_col("TEXT_LIGHT")}}))}));
+    };
+    Value load_text = _profile == current        ? localize("b_current_profile")
+                      : profile_data.truthy() ? localize("b_load_profile")
+                                              : localize("b_create_profile");
+    Value load_btn = button(4, 4, 0.8, col("BLUE"), "can_load_profile", "load_profile", load_text, 0.5);
+    load_btn.table()->get(K("nodes"))[1]["config"].table()->set("ref_value", "load_button_text");
+    bool all_unlocked = fld(prof, "all_unlocked").truthy();
+    Value third =
+        (_profile == current && !fld(G.PROFILES->get(current), "all_unlocked").truthy())
+            ? node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}, {"minh", 0.7}}),
+                   A({button(3, 4, 0.6, col("ORANGE"), "can_unlock_all", "unlock_all", localize("b_unlock_all"), 0.3)}))
+            : node(UIT_R, vl::T({{"align", "cm"}, {"minw", 3}, {"maxw", 4}, {"minh", 0.7}}),
+                   A({(all_unlocked && !G.F_NO_ACHIEVEMENTS)
+                          ? node(UIT_T, vl::T({{"text", localize("k_achievements_disabled")}, {"scale", 0.3}, {"colour", ui_col("TEXT_LIGHT")}}))
+                          : Value()}));
+    return TableRef(
+        node(UIT_ROOT, vl::T({{"align", "cm"}, {"colour", col("CLEAR")}}),
+             A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}, {"minh", 0.8}}), A({name_row})),
+                node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}}),
+                     A({node(UIT_C, vl::T({{"align", "cm"}, {"minw", 6}}), A({progress_col})),
+                        node(UIT_C, vl::T({{"align", "cm"}, {"minh", 4}}),
+                             A({node(UIT_R, vl::T({{"align", "cm"}, {"minh", 1}}), A({wins})),
+                                node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.2}}),
+                                     A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}), A({load_btn})),
+                                        node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}, {"minh", 0.7}}),
+                                             A({button(3, 4, 0.6, col("RED"), "can_delete_profile", "delete_profile",
+                                                       _profile == current ? localize("b_reset_profile") : localize("b_delete_profile"), 0.3)})),
+                                        third}))}))})),
+                node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
+                     A({node(UIT_T, vl::T({{"id", "warning_text"}, {"text", localize("ph_click_confirm")}, {"scale", 0.4}, {"colour", col("CLEAR")}}))}))}))
+            .table());
 }
 
 }  // namespace vl
