@@ -250,7 +250,25 @@ TableRef create_UIBox_generic_options(const TableRef &args) {
     Value contents = args->get(K("contents")).truthy()
                          ? args->get(K("contents"))
                          : node(UIT_T, vl::T({{"text", "EMPTY"}, {"colour", ui_col("RED")}, {"scale", 0.4}}));
-    // (args.infotip fills overlay_menu_infotip from an event; no screen ported so far uses it)
+    if (args->get(K("infotip")).truthy()) {
+        Value infotip = args->get(K("infotip"));
+        EventConfig e = ev_immediate([infotip] {
+            if (UIBox *o = dynamic_cast<UIBox *>(G.OVERLAY_MENU.get()))
+                if (UIElement *info = o->get_UIE_by_ID("overlay_menu_infotip")) {
+                    if (Node *old = info->config->get(K("object")).as<Node>()) old->remove();
+                    info->config->set("object", Value((Object *)new UIBox(overlay_infotip(infotip),
+                                                                            vl::T({{"offset", Value(vl::T({{"x", 0}, {"y", 0}}))},
+                                                                                   {"align", "bm"},
+                                                                                   {"parent", Value((Object *)info)}}))));
+                }
+            return true;
+        });
+        e.blocking = false;
+        e.blockable = false;
+        e.has_timer = true;
+        e.timer = EventTimer::REAL;
+        G.E_MANAGER->add_event(std::move(e));
+    }
     Value grey = col("GREY");
     Value bg = args->get(K("bg_colour")).truthy() ? args->get(K("bg_colour")) : Value(A({grey[1], grey[2], grey[3], 0.7}));
     Value back;
@@ -1330,6 +1348,228 @@ TableRef profile_option(int _profile) {
                 node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
                      A({node(UIT_T, vl::T({{"id", "warning_text"}, {"text", localize("ph_click_confirm")}, {"scale", 0.4}, {"colour", col("CLEAR")}}))}))}))
             .table());
+}
+
+// ------------------------------------------------------------------ collection
+namespace {
+Value pool(const char *name) { return G.P_CENTER_POOLS->get(Value(intern(name))); }
+int pool_len(const char *name) { return pool(name).table() ? pool(name).table()->len() : 0; }
+
+// G.your_collection[j] = CardArea(G.ROOM.T.x + 0.2*G.ROOM.T.w/2, G.ROOM.T.h, w, h, config)
+CardArea *collection_area(float w, float h, TableRef config) {
+    return new CardArea(G.ROOM->T->x + 0.2f * G.ROOM->T->w / 2, G.ROOM->T->h, w, h, config);
+}
+TableRef area_rows(const std::vector<CardArea *> &areas, double padding) {
+    TableRef t = new_table();
+    for (CardArea *a : areas)
+        t->push(node(UIT_R, vl::T({{"align", "cm"}, {"padding", padding}, {"no_fill", true}}), A({node(UIT_O, vl::T({{"object", obj(a)}}))})));
+    return t;
+}
+Card *collection_card(CardArea *a, const Value &front, const Value &center, float scale = 1) {
+    return new Card(a->T->x + a->T->w / 2, a->T->y, G.CARD_W * scale, G.CARD_H * scale, front, center);
+}
+TableRef page_options(int pages, int shown_pages) {
+    TableRef t = new_table();
+    for (int i = 1; i <= pages; i++)
+        t->push(Value(localize("k_page").to_string() + " " + std::to_string(i) + "/" + std::to_string(shown_pages)));
+    return t;
+}
+Value page_cycle(TableRef options, const char *callback, bool focus_first) {
+    TableRef a = vl::T({{"options", Value(options)},
+                        {"w", 4.5},
+                        {"cycle_shoulders", true},
+                        {"opt_callback", callback},
+                        {"current_option", 1},
+                        {"colour", col("RED")},
+                        {"no_pips", true},
+                        {"focus_args", Value(vl::T({{"snap_to", true}, {"nav", "wide"}}))}});
+    (void)focus_first;
+    return Value(create_option_cycle(a));
+}
+TableRef black_box_rows(TableRef deck_tables) {
+    return TableRef(node(UIT_R, vl::T({{"align", "cm"}, {"minw", 2.5}, {"padding", 0.1}, {"r", 0.1}, {"colour", col("BLACK")}, {"emboss", 0.05}}), deck_tables)
+                        .table());
+}
+}  // namespace
+
+TableRef create_UIBox_your_collection() {
+    set_discover_tallies();
+    EventConfig e = ev_immediate([] {
+        G.REFRESH_ALERTS = true;
+        return true;
+    });
+    e.blockable = false;
+    G.E_MANAGER->add_event(std::move(e));
+    Value tallies = Value(G.DISCOVER_TALLIES);
+    auto btn = [&](const char *button, const char *label, const char *count, double minw, std::initializer_list<std::pair<const char *, Value>> extra) {
+        TableRef a = vl::T({{"button", button}, {"label", Value(A({localize(label)}))}, {"minw", minw}});
+        if (count) a->set("count", fld(tallies, count));
+        for (auto &kv : extra) a->set(kv.first, kv.second);
+        return Value(UIBox_button(a));
+    };
+    Value secondary = col("SECONDARY_SET");
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", G.STAGE == RUN ? "options" : "exit_overlay_menu"},
+         {"contents",
+          Value(A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.15}}),
+                        A({btn("your_collection_jokers", "b_jokers", "jokers", 5, {{"minh", 1.7}, {"scale", 0.6}, {"id", "your_collection_jokers"}}),
+                           btn("your_collection_decks", "b_decks", "backs", 5, {}),
+                           btn("your_collection_vouchers", "b_vouchers", "vouchers", 5, {{"id", "your_collection_vouchers"}}),
+                           node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.1}, {"r", 0.2}, {"colour", col("BLACK")}}),
+                                A({node(UIT_C, vl::T({{"align", "cm"}, {"maxh", 2.9}}),
+                                        A({node(UIT_T, vl::T({{"text", localize("k_cap_consumables")}, {"scale", 0.45}, {"colour", col("L_BLACK")}, {"vert", true}, {"maxh", 2.2}}))})),
+                                   node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.15}}),
+                                        A({btn("your_collection_tarots", "b_tarot_cards", "tarots", 4, {{"id", "your_collection_tarots"}, {"colour", secondary["Tarot"]}}),
+                                           btn("your_collection_planets", "b_planet_cards", "planets", 4, {{"id", "your_collection_planets"}, {"colour", secondary["Planet"]}}),
+                                           btn("your_collection_spectrals", "b_spectral_cards", "spectrals", 4,
+                                               {{"id", "your_collection_spectrals"}, {"colour", secondary["Spectral"]}})}))}))})),
+                   node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.15}}),
+                        A({btn("your_collection_enhancements", "b_enhanced_cards", nullptr, 5, {}),
+                           btn("your_collection_seals", "b_seals", nullptr, 5, {{"id", "your_collection_seals"}}),
+                           btn("your_collection_editions", "b_editions", "editions", 5, {{"id", "your_collection_editions"}}),
+                           btn("your_collection_boosters", "b_booster_packs", "boosters", 5, {{"id", "your_collection_boosters"}}),
+                           btn("your_collection_tags", "b_tags", "tags", 5, {{"id", "your_collection_tags"}}),
+                           btn("your_collection_blinds", "b_blinds", "blinds", 5,
+                               {{"minh", 2.0}, {"id", "your_collection_blinds"}, {"focus_args", Value(vl::T({{"snap_to", true}}))}})}))}))}}));
+}
+
+// Fills G.your_collection for a page (the *_page callbacks share it with the first page).
+void collection_fill(const std::string &kind, int page) {
+    auto &yc = G.your_collection;
+    if (kind == "Joker") {
+        for (int i = 1; i <= 5; i++)
+            for (size_t j = 1; j <= yc.size(); j++) {
+                Value center = pool("Joker")[i + ((int)j - 1) * 5 + (5 * (int)yc.size() * (page - 1))];
+                if (!center.truthy()) break;
+                Card *card = collection_card(yc[j - 1].get(), page == 1 ? Value() : G.P_CARDS->get(K("empty")), center);
+                card->sticker = get_joker_win_sticker(center);
+                yc[j - 1]->emplace(card);
+            }
+    } else if (kind == "Tarot" || kind == "Spectral" || kind == "Planet" || kind == "Booster") {
+        for (size_t j = 1; j <= yc.size(); j++) {
+            int n = kind == "Tarot" ? 4 + (int)j : kind == "Spectral" ? 3 + (int)j : kind == "Planet" ? 6 : 4;
+            for (int i = 1; i <= n; i++) {
+                int idx = kind == "Tarot"    ? i + ((int)j - 1) * 5 + 11 * (page - 1)
+                          : kind == "Planet" ? i + ((int)j - 1) * 6
+                          : kind == "Booster" ? i + ((int)j - 1) * 4 + 8 * (page - 1)
+                          // the first spectral page indexes (j-1)*3 + j-1, the page callback (j-1)*4: the same
+                                              : i + ((int)j - 1) * 4 + 9 * (page - 1);
+                Value center = pool(kind.c_str())[idx];
+                if (!center.truthy()) break;
+                Value front = (page == 1 || kind == "Booster") ? Value() : G.P_CARDS->get(K("empty"));
+                Card *card = collection_card(yc[j - 1].get(), front, center, kind == "Booster" ? 1.27f : 1);
+                card->start_materialize(nullptr, i > 1 || j > 1);
+                yc[j - 1]->emplace(card);
+            }
+        }
+    } else if (kind == "Voucher") {
+        for (int i = 1; i <= 4; i++)
+            for (size_t j = 1; j <= yc.size(); j++) {
+                Value center = pool("Voucher")[i + ((int)j - 1) * 4 + 8 * (page - 1)];
+                if (!center.truthy()) break;
+                Card *card = collection_card(yc[j - 1].get(), page == 1 ? Value() : G.P_CARDS->get(K("empty")), center);
+                if (page == 1) card->ability->set("order", i + ((int)j - 1) * 4);
+                card->start_materialize(nullptr, i > 1 || j > 1);
+                yc[j - 1]->emplace(card);
+            }
+    }
+    // INIT_COLLECTION_CARD_ALERTS
+    for (auto &a : yc)
+        for (auto &c : a->cards) c->update_alert();
+}
+
+TableRef create_UIBox_your_collection_cards(const std::string &kind) {
+    auto &yc = G.your_collection;
+    yc.clear();
+    TableRef options;
+    const char *callback = nullptr;
+    int rows = kind == "Joker" ? 3 : 2;
+    for (int j = 1; j <= rows; j++) {
+        CardArea *a = nullptr;
+        if (kind == "Joker")
+            a = collection_area(5 * G.CARD_W, 0.95f * G.CARD_H, vl::T({{"card_limit", 5}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        else if (kind == "Tarot")
+            a = collection_area((4.25f + j) * G.CARD_W, G.CARD_H, vl::T({{"card_limit", 4 + j}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        else if (kind == "Booster")
+            a = collection_area(5.25f * G.CARD_W, 1.3f * G.CARD_H, vl::T({{"card_limit", 4}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        else if (kind == "Planet")
+            a = collection_area(6.25f * G.CARD_W, G.CARD_H, vl::T({{"card_limit", 6}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        else if (kind == "Spectral")
+            a = collection_area((3.25f + j) * G.CARD_W, G.CARD_H, vl::T({{"card_limit", 3 + j}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        else  // Voucher
+            a = collection_area(4.25f * G.CARD_W, G.CARD_H, vl::T({{"card_limit", 4}, {"type", "voucher"}, {"highlight_limit", 0}, {"collection", true}}));
+        yc.push_back(a);
+    }
+    std::vector<CardArea *> raw;
+    for (auto &a : yc) raw.push_back(a.get());
+    TableRef deck_tables = area_rows(raw, kind == "Joker" ? 0.07 : 0);
+    if (kind == "Joker") {
+        int pages = (int)std::ceil(pool_len("Joker") / (5.0 * yc.size()));
+        options = page_options(pages, pages);
+        callback = "your_collection_joker_page";
+    } else if (kind == "Tarot") {
+        options = page_options(pool_len("Tarot") / 11, pool_len("Tarot") / 11);
+        callback = "your_collection_tarot_page";
+    } else if (kind == "Booster") {
+        int pages = (int)std::ceil(pool_len("Booster") / 8.0);
+        options = page_options(pages, pages);
+        callback = "your_collection_booster_page";
+    } else if (kind == "Spectral") {
+        // (sic) the page count comes from the Tarot pool, the label from the Spectral pool
+        options = page_options(pool_len("Tarot") / 9, pool_len("Spectral") / 9);
+        callback = "your_collection_spectral_page";
+    } else if (kind == "Voucher") {
+        int pages = (int)std::ceil(pool_len("Voucher") / (4.0 * yc.size()));
+        options = page_options(pages, pages);
+        callback = "your_collection_voucher_page";
+    }
+    collection_fill(kind, 1);
+
+    Value box = kind == "Joker"
+                    ? node(UIT_R, vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", col("BLACK")}, {"emboss", 0.05}}), deck_tables)
+                    : Value(black_box_rows(deck_tables));
+    Value bottom = kind == "Planet" ? node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.7}}), new_table())
+                                    : node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}), A({page_cycle(options, callback, true)}));
+    return create_UIBox_generic_options(vl::T({{"back_func", "your_collection"}, {"contents", Value(A({box, bottom}))}}));
+}
+
+TableRef create_UIBox_your_collection_special(const std::string &kind) {
+    auto &yc = G.your_collection;
+    yc.clear();
+    Value info = localize("ml_edition_seal_enhancement_explanation");
+    if (kind == "Seal") {
+        CardArea *a = collection_area(4.25f * G.CARD_W, 1.03f * G.CARD_H, vl::T({{"card_limit", 4}, {"type", "title"}, {"highlight_limit", 0}}));
+        yc.push_back(a);
+        for (int k = 1; k <= pool_len("Seal"); k++) {
+            Card *card = collection_card(a, G.P_CARDS->get(K("empty")), G.P_CENTERS->get(K("c_base")));
+            card->set_seal(fld(pool("Seal")[k], "key"), true);
+            a->emplace(card);
+        }
+    } else if (kind == "Enhanced") {
+        for (int j = 1; j <= 2; j++)
+            yc.push_back(collection_area(4.25f * G.CARD_W, 1.03f * G.CARD_H, vl::T({{"card_limit", 4}, {"type", "title"}, {"highlight_limit", 0}})));
+        for (int i = 1; i <= 4; i++)
+            for (int j = 1; j <= 2; j++)
+                yc[j - 1]->emplace(collection_card(yc[j - 1].get(), G.P_CARDS->get(K("empty")), pool("Enhanced")[i + (j - 1) * 4]));
+    } else {  // Edition
+        CardArea *a = collection_area(5.3f * G.CARD_W, 1.03f * G.CARD_H, vl::T({{"card_limit", 5}, {"type", "title"}, {"highlight_limit", 0}, {"collection", true}}));
+        yc.push_back(a);
+        for (const char *ed : {"base", "foil", "holo", "polychrome", "negative"}) {
+            Value center = G.P_CENTERS->get(Value(std::string("e_") + ed));
+            Card *card = collection_card(a, G.P_CARDS->get(K("empty")), center);
+            card->start_materialize();
+            if (fld(center, "discovered").truthy()) card->set_edition(Value(vl::T({{ed, true}})), true, true);
+            a->emplace(card);
+        }
+        for (auto &c : a->cards) c->update_alert();
+    }
+    std::vector<CardArea *> raw;
+    for (auto &a : yc) raw.push_back(a.get());
+    TableRef deck_tables = area_rows(raw, 0);
+    return create_UIBox_generic_options(vl::T({{"infotip", info},
+                                               {"back_func", "your_collection"},
+                                               {"snap_back", true},
+                                               {"contents", Value(A({Value(black_box_rows(deck_tables))}))}}));
 }
 
 }  // namespace vl

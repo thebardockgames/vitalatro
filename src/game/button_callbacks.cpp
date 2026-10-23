@@ -805,6 +805,30 @@ void register_button_callbacks() {
         G.FILE_HANDLER->set("force", true);
         change_tab(static_cast<UIBox *>(G.OVERLAY_MENU.get())->get_UIE_by_ID(("tab_but_" + std::to_string(G.focused_profile)).c_str()));
     };
+    F["your_collection"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_your_collection());
+    };
+    for (auto &p : std::vector<std::pair<const char *, const char *>>{{"your_collection_jokers", "Joker"},
+                                                                     {"your_collection_tarots", "Tarot"},
+                                                                     {"your_collection_planets", "Planet"},
+                                                                     {"your_collection_spectrals", "Spectral"},
+                                                                     {"your_collection_vouchers", "Voucher"},
+                                                                     {"your_collection_boosters", "Booster"}}) {
+        std::string kind = p.second;
+        F[p.first] = [kind](UIElement *) {
+            G.SETTINGS->set("paused", true);
+            overlay_menu(create_UIBox_your_collection_cards(kind));
+        };
+    }
+    for (auto &p : std::vector<std::pair<const char *, const char *>>{
+             {"your_collection_seals", "Seal"}, {"your_collection_enhancements", "Enhanced"}, {"your_collection_editions", "Edition"}}) {
+        std::string kind = p.second;
+        F[p.first] = [kind](UIElement *) {
+            G.SETTINGS->set("paused", true);
+            overlay_menu(create_UIBox_your_collection_special(kind));
+        };
+    }
     F["high_scores"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
         overlay_menu(create_UIBox_high_scores());
@@ -846,6 +870,23 @@ void register_button_callbacks() {
     F["change_lang"] = change_lang;
 
     auto &T = G.FUNCS_T;
+    for (auto &p : std::vector<std::pair<const char *, const char *>>{{"your_collection_joker_page", "Joker"},
+                                                                     {"your_collection_tarot_page", "Tarot"},
+                                                                     {"your_collection_spectral_page", "Spectral"},
+                                                                     {"your_collection_booster_page", "Booster"},
+                                                                     {"your_collection_voucher_page", "Voucher"}}) {
+        std::string kind = p.second;
+        T[p.first] = [kind](const TableRef &a) {
+            Value cc = a ? a->get(K("cycle_config")) : Value();
+            if (!cc.truthy()) return;
+            for (auto &area : G.your_collection)
+                for (int i = (int)area->cards.size() - 1; i >= 0; i--) {
+                    Card *c = area->remove_card(area->cards[i].get());
+                    if (c) c->remove();
+                }
+            collection_fill(kind, (int)fld(cc, "current_option").num());
+        };
+    }
     T["change_collab"] = [](const TableRef &a) {
         Value suit = fld(a->get(K("cycle_config")), "curr_suit");
         Value collab = fld(fld(Value(G.COLLABS), "options"), std::string(suit.str()).c_str()).get(a->get(K("to_key")));

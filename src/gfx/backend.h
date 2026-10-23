@@ -43,12 +43,25 @@ struct Cmd {
     uint32_t first_index, index_count;  // indices are relative to first_vertex
 };
 
+// An axis-aligned rectangle (integer pixel edges) that draw command `cmd` paints fully opaque:
+// whatever earlier commands of the same target draw inside it is never seen. Backends may skip
+// shading it (depth pre-pass).
+struct Occluder {
+    uint32_t cmd;
+    float x0, y0, x1, y1;
+    bool all = false;  // hides `cmd` itself too (a canvas region nobody will see)
+};
+
+// Depth of command i in a scene with occluders: later commands are nearer.
+inline float occlusion_depth(uint32_t cmd) { return 1.0f - (float)(cmd + 1) * (1.0f / 1048576.0f); }
+
 struct FrameData {
     std::vector<Vertex> vertices;
     std::vector<uint16_t> indices;
     std::vector<float> uniforms;
     std::vector<Cmd> cmds;
-    void reset() { vertices.clear(); indices.clear(); uniforms.clear(); cmds.clear(); }
+    std::vector<Occluder> occluders;  // in cmd order
+    void reset() { vertices.clear(); indices.clear(); uniforms.clear(); cmds.clear(); occluders.clear(); }
 };
 
 // Implemented by each backend.

@@ -12,6 +12,7 @@
 #include "engine/ui.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/ui_definitions.h"
 #include "game/sound.h"
 
 namespace vl {
@@ -94,7 +95,22 @@ Card::Card(float x, float y, float w, float h, const Value &card, const Value &c
 }
 
 void Card::update_alert() {
-    // TODO(collection): alert badges on undiscovered/unalerted collection cards (create_UIBox_card_alert)
+    Value set = ability->get(K("set"));
+    if (!(set.equals("Joker") || set.equals("Voucher") || ability->get(K("consumeable")).truthy() || set.equals("Edition") ||
+          set.equals("Booster")))
+        return;
+    Value center = config->get(K("center"));
+    if (!(area && area->config->get(K("collection")).truthy() && center.truthy())) return;
+    if (fld(center, "alerted").truthy() && children.get("alert")) {
+        children.get("alert")->remove();
+        children.set("alert", nullptr);
+    } else if (!fld(center, "alerted").truthy() && !children.get("alert") && fld(center, "discovered").truthy()) {
+        bool left = set.equals("Voucher") && (int)fld(center, "order").num() % 2 == 1;
+        children.set("alert", new UIBox(create_UIBox_card_alert(),
+                                        vl::T({{"align", left ? "tli" : "tri"},
+                                               {"offset", Value(vl::T({{"x", left ? 0.1 : -0.1}, {"y", 0.1}}))},
+                                               {"parent", Value((Object *)this)}})));
+    }
 }
 
 // ------------------------------------------------------------------ set_base / sprites / ability
@@ -752,6 +768,7 @@ void Card::juice_up_card(float scale, const float *rot_amount, bool disable_rumb
 
 // ------------------------------------------------------------------ draw
 void Card::draw_layer(std::string_view layer) {
+    if (G.vl_bench == 4) return;
     hover_tilt = 1;
     if (!states.visible) return;
     bool l_shadow = layer == "shadow" || layer == "both";

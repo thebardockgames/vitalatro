@@ -150,7 +150,8 @@ void update_overlay_zoom() {
     auto &z = G.overlay_zoom;
     z.on = false;
     UIBox *ob = dynamic_cast<UIBox *>(G.OVERLAY_MENU.get());
-    if (!ob || !G.SETTINGS->get(K("vl_large_menus")).truthy()) return;
+    static const bool off_for_tests = std::getenv("VL_NO_ZOOM") != nullptr;  // frame comparisons with the original
+    if (!ob || off_for_tests || !G.SETTINGS->get(K("vl_large_menus")).truthy()) return;
     // the visible panel: the root itself is a screen-sized dimmed backdrop (padding = 15)
     Node *panel = ob->UIRoot && ob->UIRoot->children.count() ? ob->UIRoot->children.at(0) : nullptr;
     if (!panel || panel->T->w <= 0 || panel->T->h <= 0) return;
@@ -674,6 +675,10 @@ void Globals::delete_run() {
 }
 
 void Globals::splash_screen() {
+    if (vl_debug_table || std::getenv("VL_DEBUG_TABLE")) {
+        debug_table();
+        return;
+    }
     if (SETTINGS->get(K("skip_splash")).equals("Yes")) {
         main_menu();
         return;
@@ -804,6 +809,92 @@ void Globals::splash_screen() {
         }));
         return true;
     }));
+}
+
+// Vitalatro: a run-like table to measure the in-run GPU cost before the run itself is ported (hold
+// R while the game boots; VL_DEBUG_TABLE=1 on PC). Game:start_run's card areas at
+// set_screen_positions' places and its background in the Small Blind colours, holding jokers with
+// every edition, two consumables, a hand with enhancements, editions and seals, and the deck.
+// The HUD (left panel) is not there yet.
+void Globals::debug_table() {
+    prep_stage(RUN, SELECTING_HAND, true);
+    GAME->set("selected_back", Value((Object *)new Back(P_CENTERS->get(K("b_red")))));
+    TIMERS.REAL = 12;
+    TIMERS.TOTAL = 12;
+
+    consumeables = new CardArea(0, 0, 2.3f * CARD_W, 0.95f * CARD_H, vl::T({{"card_limit", 2}, {"type", "joker"}, {"highlight_limit", 1}}));
+    jokers = new CardArea(0, 0, 4.9f * CARD_W, 0.95f * CARD_H, vl::T({{"card_limit", 5}, {"type", "joker"}, {"highlight_limit", 1}}));
+    discard = new CardArea(0, 0, CARD_W, CARD_H, vl::T({{"card_limit", 500}, {"type", "discard"}}));
+    deck = new CardArea(0, 0, CARD_W * 1.1f, 0.95f * CARD_H, vl::T({{"card_limit", 52}, {"type", "deck"}}));
+    hand = new CardArea(0, 0, 6 * CARD_W, 0.95f * CARD_H, vl::T({{"card_limit", 8}, {"type", "hand"}}));
+    play = new CardArea(0, 0, 5.3f * CARD_W, 0.95f * CARD_H, vl::T({{"card_limit", 5}, {"type", "play"}}));
+    // set_screen_positions (RUN)
+    hand->T->x = TILE_W - hand->T->w - 3.55f;
+    hand->T->y = TILE_H - hand->T->h;
+    play->T->x = hand->T->x + (hand->T->w - play->T->w) / 2;
+    play->T->y = hand->T->y - 3.6f;
+    jokers->T->x = hand->T->x - 0.1f;
+    jokers->T->y = 0;
+    consumeables->T->x = jokers->T->x + jokers->T->w + 0.8f;
+    consumeables->T->y = 0;
+    deck->T->x = TILE_W - deck->T->w - 0.5f;
+    deck->T->y = TILE_H - deck->T->h;
+    discard->T->x = jokers->T->x + jokers->T->w / 2 + 0.3f + 15;
+    discard->T->y = 4.2f;
+    for (CardArea *a : {hand.get(), play.get(), jokers.get(), consumeables.get(), deck.get(), discard.get()}) a->hard_set_VT();
+
+    SpritePos p2;
+    p2.x = 2;
+    SPLASH_BACK = new Sprite(-30, -6, ROOM->T->w + 60, ROOM->T->h + 12, &ASSET_ATLAS["ui_1"], p2);
+    {
+        AlignArgs al;
+        al.major = play.get();
+        al.type = "cm";
+        static const Bond strong = Bond::Strong;
+        al.bond = &strong;
+        XY off{0, 0};
+        al.offset = &off;
+        SPLASH_BACK->set_alignment(al);
+    }
+    {
+        DrawStep st;
+        st.shader = gfx::ShaderId::Background;
+        st.send = {{"time", [] { return Value(G.TIMERS.REAL_SHADER); }},
+                   {"spin_time", [] { return Value(G.TIMERS.BACKGROUND); }},
+                   {"colour_1", [] { return fld(G.C->get(K("BACKGROUND")), "C"); }},
+                   {"colour_2", [] { return fld(G.C->get(K("BACKGROUND")), "L"); }},
+                   {"colour_3", [] { return fld(G.C->get(K("BACKGROUND")), "D"); }},
+                   {"contrast", [] { return fld(G.C->get(K("BACKGROUND")), "contrast"); }},
+                   {"spin_amount", [] { return Value(0); }}};
+        SPLASH_BACK->define_draw_steps({st});
+    }
+    ease_background_colour(vl::T({{"new_colour", fld(colour("BLIND"), "Small")}, {"contrast", 1}}));
+
+    auto center = [&](const char *k) { return P_CENTERS->get(Value(k)); };
+    auto add = [&](CardArea *a, Value front, Value c) {
+        Card *card = new Card(a->T->x + a->T->w / 2, a->T->y, CARD_W, CARD_H, front, c);
+        a->emplace(card);
+        return card;
+    };
+    // jokers: plain, foil, holographic, polychrome, negative
+    const char *jk[5] = {"j_joker", "j_greedy_joker", "j_jolly", "j_hologram", "j_blueprint"};
+    const char *ed[5] = {nullptr, "foil", "holo", "polychrome", "negative"};
+    for (int i = 0; i < 5; i++) {
+        Card *c = add(jokers.get(), Value(), center(jk[i]));
+        if (ed[i]) c->set_edition(Value(vl::T({{ed[i], true}})), true, true);
+    }
+    add(consumeables.get(), Value(), center("c_fool"));
+    add(consumeables.get(), Value(), center("c_mercury"));
+    // the hand: base cards, enhancements, an edition, seals
+    const char *cards[8] = {"S_A", "H_K", "D_Q", "C_J", "S_T", "H_9", "D_7", "C_2"};
+    const char *enh[8] = {"c_base", "m_bonus", "m_glass", "m_steel", "m_gold", "c_base", "m_lucky", "c_base"};
+    for (int i = 0; i < 8; i++) {
+        Card *c = add(hand.get(), P_CARDS->get(Value(cards[i])), center(enh[i]));
+        if (i == 5) c->set_edition(Value(vl::T({{"polychrome", true}})), true, true);
+        if (i == 0) c->set_seal(Value("Gold"), true, true);
+        if (i == 7) c->set_seal(Value("Red"), true, true);
+    }
+    for (int i = 0; i < 44; i++) add(deck.get(), P_CARDS->get(Value(cards[i % 8])), center("c_base"));
 }
 
 void Globals::main_menu(std::string_view change_context) {
@@ -1121,7 +1212,7 @@ void Globals::draw() {
     if (SPLASH_BACK) {
         gfx::push();
         SPLASH_BACK->translate_container();
-        if (!render::draw_background_sprite(SPLASH_BACK.get())) SPLASH_BACK->draw();
+        if (vl_bench != 2 && !render::draw_background_sprite(SPLASH_BACK.get())) SPLASH_BACK->draw();
         gfx::pop();
     }
     STAGE_OBJECTS[STAGE].each([&](Node *v) { v->under_overlay = (bool)OVERLAY_TUTORIAL; });
@@ -1170,7 +1261,8 @@ void Globals::draw() {
         if (overlay_zoom.on && in_overlay(v)) draw_zoomed(v);
         else draw_node(v);
     };
-    if (OVERLAY_MENU && OVERLAY_MENU.get() != CONTROLLER->dragging.target.get()) draw_maybe_zoomed(OVERLAY_MENU.get());
+    if (vl_bench == 5) overlay_zoom.on = false;
+    if (OVERLAY_MENU && vl_bench != 3 && OVERLAY_MENU.get() != CONTROLLER->dragging.target.get()) draw_maybe_zoomed(OVERLAY_MENU.get());
     if (debug_tools && debug_tools.get() != CONTROLLER->dragging.target.get()) draw_node(debug_tools.get());
     I.ALERT.each([&](Node *v) { draw_maybe_zoomed(v); });
     if (CONTROLLER->dragging.target && CONTROLLER->dragging.target != CONTROLLER->focused.target)

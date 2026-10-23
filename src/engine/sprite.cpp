@@ -2,8 +2,8 @@
 #include "engine/sprite.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 #include "engine/controller.h"
@@ -101,62 +101,67 @@ static void send_fast_dissolve(gfx::ShaderId sh, Moveable *dm, bool shadow) {
     gfx::send(sh, "vl_dis_tint", tint, 4);
 }
 
-struct Sprite::DissolveFieldJob {
-    std::atomic<bool> done{false};
-    int w = 0, h = 0;
-    std::vector<uint16_t> px;
-};
-
 gfx::Texture *Sprite::dissolve_field(int id) {
-    if (dissolve_field_id == id && dissolve_field_pos.x == sprite_pos.x && dissolve_field_pos.y == sprite_pos.y) {
-        if (!dissolve_field_tex && dissolve_job && dissolve_job->done.load(std::memory_order_acquire)) {
-            gfx::TextureDesc d{dissolve_job->w, dissolve_job->h, (const uint8_t *)dissolve_job->px.data()};
-            d.half_float = true;
-            d.filter = gfx::Filter::Nearest;
-            dissolve_field_tex = gfx::create_texture(d);
-            dissolve_job = nullptr;
+    const uint32_t frame = gfx::frame_index();
+    const int w = (int)atlas->px, h = (int)atlas->py;
+    DissolveField *f = nullptr;
+    for (size_t i = 0; i < dissolve_fields.size();) {
+        DissolveField &e = dissolve_fields[i];
+        if (e.id == id) {
+            f = &e;
+            i++;
+        } else if (frame - e.used > 2) {  // not drawn lately: give the canvas back
+            gfx::release_canvas(e.canvas);
+            e = dissolve_fields.back();
+            dissolve_fields.pop_back();
+        } else {
+            i++;
         }
-        return dissolve_field_tex;
     }
-    if (dissolve_field_tex) {
-        gfx::destroy_texture(dissolve_field_tex);
-        dissolve_field_tex = nullptr;
+    if (f && f->pos.x == sprite_pos.x && f->pos.y == sprite_pos.y && f->w == w && f->h == h) {
+        f->used = frame;
+        return gfx::canvas_texture(f->canvas);
     }
-    dissolve_job = nullptr;
-    dissolve_field_id = id;
-    dissolve_field_pos = sprite_pos;
-    auto job = std::make_shared<DissolveFieldJob>();
-    job->w = (int)atlas->px;
-    job->h = (int)atlas->py;
-    dissolve_job = job;
-    platform::run_async([job, id] {
-        const int w = job->w, h = job->h;
-        const float m = (float)std::max(w, h);
-        // dissolve.fs: t and the three moving field centres (constant for a given ID), then per texel
-        const float t = (float)std::fmod(123.33412 * (id / 1.14212), 3000.0) * 10.0f + 2003.f;
-        const float o[6] = {50 * std::sin(-t / 143.6340f), 50 * std::cos(-t / 99.4324f), 50 * std::cos(t / 53.1532f),
-                            50 * std::cos(t / 61.4532f),   50 * std::sin(-t / 87.53218f), 50 * std::sin(-t / 49.0000f)};
-        job->px.resize((size_t)w * h * 4);
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++) {
-                float fx = x / m, fy = y / m;
-                float cx = (fx - 0.5f) * 2.3f * m, cy = (fy - 0.5f) * 2.3f * m;
-                float p1x = cx + o[0], p1y = cy + o[1], p2x = cx + o[2], p2y = cy + o[3], p3x = cx + o[4], p3y = cy + o[5];
-                float field = (1.f + (std::cos(std::sqrt(p1x * p1x + p1y * p1y) / 19.483f) +
-                                      std::sin(std::sqrt(p2x * p2x + p2y * p2y) / 33.155f) * std::cos(p2y / 15.73f) +
-                                      std::cos(std::sqrt(p3x * p3x + p3y * p3y) / 27.193f) * std::sin(p3x / 21.92f))) /
-                              2.f;
-                float g = (field - .5f) * 3.14f;
-                float border = std::max(fx - 0.8f, 0.f) + std::max(fy - 0.8f, 0.f) + std::max(0.2f - fx, 0.f) + std::max(0.2f - fy, 0.f);
-                uint16_t *o4 = &job->px[((size_t)y * w + x) * 4];
-                o4[0] = gfx::float_to_half(std::cos(g));
-                o4[1] = gfx::float_to_half(std::sin(g));
-                o4[2] = gfx::float_to_half(border);
-                o4[3] = gfx::float_to_half(1);
-            }
-        job->done.store(true, std::memory_order_release);
-    });
-    return nullptr;
+    // each bake is a GPU scene on the fields' render target: at most 6 per frame (GXM's limit is 8),
+    // the rest wait a frame (drawn with vl_dissolve / the original shader meanwhile)
+    static uint32_t bake_frame = 0;
+    static int bakes = 0;
+    if (bake_frame != frame) bake_frame = frame, bakes = 0;
+    if (bakes >= 6) return nullptr;
+    bakes++;
+    if (!f) {
+        dissolve_fields.push_back({id, sprite_pos, nullptr, 0, 0, frame});
+        f = &dissolve_fields.back();
+    }
+    if (!f->canvas || f->w != w || f->h != h) {
+        gfx::release_canvas(f->canvas);
+        f->canvas = gfx::acquire_canvas(w, h, gfx::CanvasFormat::RGBA16F, gfx::Filter::Nearest);
+        f->w = w;
+        f->h = h;
+    }
+    f->pos = sprite_pos;
+    f->used = frame;
+    // dissolve.fs: t and the three moving field centres (constant for a given ID)
+    const float t = (float)std::fmod(123.33412 * (id / 1.14212), 3000.0) * 10.0f + 2003.f;
+    const float a[4] = {50 * std::sin(-t / 143.6340f), 50 * std::cos(-t / 99.4324f), 50 * std::cos(t / 53.1532f), 50 * std::cos(t / 61.4532f)};
+    const float b[4] = {50 * std::sin(-t / 87.53218f), 50 * std::sin(-t / 49.0000f), (float)w, (float)h};
+    gfx::send(gfx::ShaderId::VlDissolveField, "vl_dis_a", a, 4);
+    gfx::send(gfx::ShaderId::VlDissolveField, "vl_dis_b", b, 4);
+    gfx::prepass_fill(f->canvas, gfx::ShaderId::VlDissolveField);
+    return gfx::canvas_texture(f->canvas);
+}
+
+gfx::Texture *Sprite::hologram_glow() {
+    if (glow_canvas && glow_image == atlas->image && glow_pos.x == sprite_pos.x && glow_pos.y == sprite_pos.y)
+        return gfx::canvas_texture(glow_canvas);
+    // one texel per pixel of the 2x atlas cell
+    if (!glow_canvas) glow_canvas = gfx::acquire_canvas((int)(quad.w * 2), (int)(quad.h * 2), gfx::CanvasFormat::RGBA16F, gfx::Filter::Linear);
+    glow_image = atlas->image;
+    glow_pos = sprite_pos;
+    const float rect[4] = {quad.x / quad.sw, quad.y / quad.sh, quad.w / quad.sw, quad.h / quad.sh};
+    gfx::send(gfx::ShaderId::VlHologramGlow, "vl_glow_rect", rect, 4);
+    gfx::prepass_fill(glow_canvas, gfx::ShaderId::VlHologramGlow, atlas->image);
+    return gfx::canvas_texture(glow_canvas);
 }
 
 void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
@@ -174,6 +179,26 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
     if (!((a.shadow_height && !a.tilt_shadow) || no_tilt))
         hovering = ((dm->touch_collide_tilt && dm->states.collide.is) ? dm->hover_tilt : 0) *
                    (a.tilt_shadow ? *a.tilt_shadow : 1);
+
+    // dissolve == 0 (nearly every card draw): the mask-free parallel-mode variants. Chosen before
+    // any uniform is sent, so the shader-specific ones (booster, foil...) reach the variant.
+    static const bool no_d0 = std::getenv("VL_NO_D0") != nullptr;  // A/B comparisons
+    const gfx::ShaderId orig_sh = sh;
+    if (!no_d0 && G.FAST_SHADERS && std::fabs(dm->dissolve) < 0.001f && !(sh == gfx::ShaderId::Dissolve && hovering <= 0))
+        sh = gfx::dissolve_zero_variant(sh);
+    else if (!no_d0 && G.FAST_SHADERS && std::fabs(dm->dissolve) >= 0.001f && sh != gfx::ShaderId::Dissolve && dissolve_field(dm->ID))
+        sh = gfx::dissolve_fast_variant(sh);  // the effect shaders while (de)materializing, with the baked field
+    const bool hologram = sh == gfx::ShaderId::VlD0Hologram || sh == gfx::ShaderId::VlDmHologram;
+    if (hologram) {
+        const float rect[4] = {quad.x / quad.sw, quad.y / quad.sh, quad.w / quad.sw, quad.h / quad.sh};
+        gfx::send(sh, "vl_glow_rect", rect, 4);
+        gfx::set_aux_texture(1, hologram_glow());
+    }
+    if (G.vl_bench == 7 && sh >= gfx::ShaderId::VlD0Foil && sh <= gfx::ShaderId::VlD0Hologram) sh = gfx::ShaderId::VlD0Dissolve;  // GPU bench: texture cost only
+    if ((G.vl_bench == 8 && sh == gfx::ShaderId::VlD0Polychrome) || (G.vl_bench == 9 && sh == gfx::ShaderId::VlD0Holo) ||
+        (G.vl_bench == 10 && (sh == gfx::ShaderId::VlD0Foil || sh == gfx::ShaderId::VlD0Negative || sh == gfx::ShaderId::VlD0NegativeShine)) ||
+        (G.vl_bench == 11 && sh == gfx::ShaderId::VlD0Hologram))
+        sh = gfx::ShaderId::VlD0Dissolve;
 
     bool identity = false;
     if (a.custom_send) {
@@ -211,10 +236,10 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
                 }
                 return;
             }
-            // large sprites (the title logo) use the field baked once per sprite, when it is ready
-            sh = (atlas->px * atlas->py >= 20000 && dissolve_field(dm->ID)) ? gfx::ShaderId::VlDissolveBaked
-                                                                             : gfx::ShaderId::VlDissolve;
+            // the field baked once per sprite (vl_dissolve_field.fs), when it could be baked
+            sh = dissolve_field(dm->ID) ? gfx::ShaderId::VlDissolveBaked : gfx::ShaderId::VlDissolve;
         }
+        // dissolve == 0 (nearly every card draw): the mask-free parallel-mode variants
         if (!identity) {
             float cursor[2];
             cursor[0] = (dm->has_tilt_var ? dm->tilt_var.mx : G.CONTROLLER->cursor_position.x) * G.CANV_SCALE;
@@ -243,9 +268,8 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
             burn(1, "burn_colour_1");
             burn(2, "burn_colour_2");
             gfx::send(sh, "shadow", a.shadow_height ? 1.0f : 0.0f);
-            if (sh == gfx::ShaderId::VlDissolve || sh == gfx::ShaderId::VlDissolveBaked)
-                send_fast_dissolve(sh, dm, a.shadow_height != nullptr);
-            if (a.send) gfx::send(sh, gfx::shader_info(sh).name, a.send, 2);
+            if (gfx::is_fast_dissolve(sh)) send_fast_dissolve(sh, dm, a.shadow_height != nullptr);
+            if (a.send) gfx::send(sh, gfx::shader_info(orig_sh).name, a.send, 2);  // the extern named like the shader
         }
     }
 
@@ -263,10 +287,12 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
         }
     } else {
         gfx::set_shader(sh);
-        if (sh == gfx::ShaderId::VlDissolveBaked) gfx::set_aux_texture(0, dissolve_field(dm->ID));
+        const bool baked = sh == gfx::ShaderId::VlDissolveBaked || (sh >= gfx::ShaderId::VlDmFoil && sh <= gfx::ShaderId::VlDmHologram);
+        if (baked) gfx::set_aux_texture(0, dissolve_field(dm->ID));
         if (a.other_obj) draw_from(a.other_obj, a.ms, a.mr, a.mx, a.my);
         else draw_self();
-        if (sh == gfx::ShaderId::VlDissolveBaked) gfx::set_aux_texture(0, nullptr);
+        if (baked) gfx::set_aux_texture(0, nullptr);
+        if (hologram) gfx::set_aux_texture(1, nullptr);
     }
     gfx::set_shader(gfx::ShaderId::Default);
 
@@ -326,10 +352,10 @@ void Sprite::draw_from(Moveable *o, float ms, float mr, float mx, float my) {
 }
 
 void Sprite::remove() {
-    if (dissolve_field_tex) {
-        gfx::destroy_texture(dissolve_field_tex);
-        dissolve_field_tex = nullptr;
-    }
+    for (DissolveField &e : dissolve_fields) gfx::release_canvas(e.canvas);
+    dissolve_fields.clear();
+    gfx::release_canvas(glow_canvas);
+    glow_canvas = nullptr;
     G.ANIMATIONS.remove(this);
     G.I.SPRITE.remove(this);
     Moveable::remove();

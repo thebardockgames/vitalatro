@@ -3,11 +3,9 @@
 // screen pixel, the distortion as an offset from tc (rg) and the mask (b). Both are smooth, so
 // sampling them at the cursor-tilted tc stays exact to a few hundredths of a pixel.
 //
-// The scanline mask is separable: each channel is clamp(-0.3 + f(tc.y * scanlines)
-// - g(tc.x * scanlines * 4), -1, 2) with f and g 2*pi-periodic, so f and g are read from two
-// 256-texel repeating lookup textures (vl_Aux1 = f, vl_Aux2 = g) instead of six sin/cos per
-// pixel. Blending is disabled: the result is written as it would end up after alpha-blending onto
-// the cleared black backbuffer, so the backbuffer needs no clear.
+// The scanline mask only depends on the pixel (its distorted tc), so vl_Aux1 holds it, precomputed
+// as (mask + 1) / 3 (RGBA8). Blending is disabled: the result is written as it would end up after
+// alpha-blending onto the cleared black backbuffer, so the backbuffer needs no clear.
 // Same uniforms and the same whole-screen vertex tilt towards the cursor as CRT.fs.
 extern MY_HIGHP_OR_MEDIUMP vec2 distortion_fac;
 extern MY_HIGHP_OR_MEDIUMP vec2 scale_fac;
@@ -15,13 +13,13 @@ extern MY_HIGHP_OR_MEDIUMP number feather_fac;
 extern MY_HIGHP_OR_MEDIUMP number crt_intensity;
 extern MY_HIGHP_OR_MEDIUMP number scanlines;
 uniform Image vl_Aux1;
-uniform Image vl_Aux2;
 uniform Image vl_Aux3;
 
 #define BUFF 0.01
 
 vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
 {
+    vec2 tc0 = tc;
     vec4 m = Texel(vl_Aux3, tc);
     tc += m.rg;
     MY_HIGHP_OR_MEDIUMP number mask = m.b;
@@ -34,10 +32,8 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
     }
     MY_HIGHP_OR_MEDIUMP vec3 rgb_result = crt_tex.rgb * (1.0 - crt_intensity);
 
-    // f in [-2, 2] stored as (f + 2) / 4, g in [0, 0.8] stored as g / 0.8
-    vec3 f = Texel(vl_Aux1, vec2(tc.y * scanlines * 0.15915494, 0.5)).rgb * 4.0 - 2.0;
-    vec3 g = Texel(vl_Aux2, vec2(tc.x * scanlines * 4.0 * 0.15915494, 0.5)).rgb * 0.8;
-    MY_HIGHP_OR_MEDIUMP vec3 rgb_scanline = clamp(vec3(-0.3) + f - g, -1.0, 2.0);
+    // the scanline mask at this pixel, precomputed: (mask + 1) / 3
+    MY_HIGHP_OR_MEDIUMP vec3 rgb_scanline = Texel(vl_Aux1, tc0).rgb * 3.0 - 1.0;
     rgb_result += crt_tex.rgb * rgb_scanline * crt_intensity;
 
     rgb_result -= vec3(0.55);

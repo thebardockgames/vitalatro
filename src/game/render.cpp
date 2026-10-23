@@ -2,6 +2,7 @@
 // ones measured in M0 (m0.cpp has the benchmark and the diagnostic pages).
 #include "game/render.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -67,8 +68,21 @@ void draw_blocks(ShaderId field_shader, Texture *polar, ShaderId color_shader) {
     int half = (int)fh / 2;
     int y0 = (frame_no & 1) ? half : 0, y1 = (frame_no & 1) ? (int)fh : half;
     Quad q{0, (float)y0, fw, (float)(y1 - y0), fw, fh};
-    draw(polar, q, 0, (float)y0);
+    if (G.vl_bench != 12) draw(polar, q, 0, (float)y0);  // GPU bench mode 12: the field is not updated
 
+    if (G.vl_bench == 13 && color_shader == ShaderId::BgColor) {
+        // GPU bench: colour pass and upscale merged, per screen pixel (vl_bg_merged.fs)
+        set_canvas(target);
+        send(ShaderId::BgMerged, "pixel_size", pixel_size);
+        send(ShaderId::BgMerged, "k", (float)kK);
+        float fs[2] = {fw, fh};
+        send(ShaderId::BgMerged, "field_size", fs, 2);
+        set_shader(ShaderId::BgMerged);
+        draw(ft, 0, 0, 0, SW / fw, SH / fh);
+        set_shader(ShaderId::Default);
+        pop();
+        return;
+    }
     set_canvas(color);
     set_shader(color_shader);
     float x0 = 1.5f - 0.5f / kK;
@@ -83,8 +97,8 @@ void draw_blocks(ShaderId field_shader, Texture *polar, ShaderId color_shader) {
 
 // ------------------------------------------------------------------ CRT
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-Texture *crt_lut_f, *crt_lut_g, *crt_map;
-float crt_map_value = -1;
+Texture *crt_lut_f, *crt_lut_g, *crt_map, *crt_scan;
+float crt_map_value = -1, crt_map_scanlines = -1;
 
 void build_crt_luts() {
     const int n = 256;
@@ -116,8 +130,11 @@ float smoothstepf(float e0, float e1, float x) {
 
 // CRT.fs barrel distortion (offset from tc) and edge mask at every screen pixel centre, for the
 // current crt setting (the distortion only depends on it).
-void build_crt_map(float crt) {
+// The distortion/mask map (RGBA16F) and the scanline mask at each pixel's distorted tc (RGBA8,
+// (mask + 1) / 3 per channel: CRT.fs's rgb_scanline, which only depends on the pixel).
+void build_crt_map(float crt, float scanlines) {
     std::vector<uint16_t> px((size_t)SW * SH * 4);
+    std::vector<uint8_t> scan((size_t)SW * SH * 4);
     float dfx = 1.0f + 0.07f * crt / 100, dfy = 1.0f + 0.1f * crt / 100;
     float sf = 1.0f - 0.008f * crt / 100, feather = 0.01f;
     for (int y = 0; y < SH; y++)
@@ -131,11 +148,24 @@ void build_crt_map(float crt) {
             o[1] = float_to_half((ny + 1) / 2 - v);
             o[2] = float_to_half(mask);
             o[3] = float_to_half(1);
+            const double ay = (ny + 1) / 2 * (double)scanlines, ax = (nx + 1) / 2 * (double)scanlines * 4;
+            const double sc[3] = {
+                -0.3 + 2.0 * std::sin(ay - 3.14 / 4.0) - 0.8 * std::clamp(std::sin(ax), 0.4, 1.0),
+                -0.3 + 2.0 * std::cos(ay) - 0.8 * std::clamp(std::cos(ax), 0.0, 1.0),
+                -0.3 + 2.0 * std::cos(ay - 3.14 / 3.0) - 0.8 * std::clamp(std::cos(ax - 3.14 / 4.0), 0.0, 1.0)};
+            uint8_t *so = &scan[((size_t)y * SW + x) * 4];
+            for (int c = 0; c < 3; c++) so[c] = (uint8_t)std::lround((std::clamp(sc[c], -1.0, 2.0) + 1) / 3 * 255);
+            so[3] = 255;
         }
     TextureDesc d{SW, SH, (const uint8_t *)px.data()};
     d.half_float = true;
-    crt_map = create_texture(d);  // (the previous map is leaked: the setting rarely changes)
+    destroy_texture(crt_map);
+    crt_map = create_texture(d);
+    TextureDesc ds{SW, SH, scan.data()};
+    destroy_texture(crt_scan);
+    crt_scan = create_texture(ds);
     crt_map_value = crt;
+    crt_map_scanlines = scanlines;
 }
 }  // namespace
 
@@ -159,7 +189,7 @@ void init() {
     polar_splash = build_polar(fw, fh, 0.0f);
     build_crt_luts();
     // the default crt setting's distortion map (otherwise ~0.3 s of CPU in the first frame)
-    if (g_fast) build_crt_map(70 * 0.3f);
+    if (g_fast) build_crt_map(70 * 0.3f, SH * 0.75f / G.CANV_SCALE);
 }
 
 bool fast_paths() { return g_fast; }
@@ -206,6 +236,11 @@ bool draw_background_sprite(Sprite *s) {
         colour_uniform(ShaderId::BgColor, "colour_1", get("colour_1"));
         colour_uniform(ShaderId::BgColor, "colour_2", get("colour_2"));
         colour_uniform(ShaderId::BgColor, "colour_3", get("colour_3"));
+        send(ShaderId::BgMerged, "contrast", (float)get("contrast").num());
+        send(ShaderId::BgMerged, "spin_amount", (float)get("spin_amount").num());
+        colour_uniform(ShaderId::BgMerged, "colour_1", get("colour_1"));
+        colour_uniform(ShaderId::BgMerged, "colour_2", get("colour_2"));
+        colour_uniform(ShaderId::BgMerged, "colour_3", get("colour_3"));
         draw_blocks(ShaderId::BgField, polar_bg, ShaderId::BgColor);
     } else {
         return false;
@@ -257,9 +292,9 @@ bool draw_flash_sprite(Sprite *s) {
 void crt_pass(Canvas *canvas, const CrtParams &p) {
     ShaderId id = ShaderId::CRT;
     if (g_fast) {
-        if (p.crt != crt_map_value) build_crt_map(p.crt);
-        set_aux_texture(0, crt_lut_f);
-        set_aux_texture(1, crt_lut_g);
+        const float scanlines = SH * 0.75f / G.CANV_SCALE;
+        if (p.crt != crt_map_value || scanlines != crt_map_scanlines) build_crt_map(p.crt, scanlines);
+        set_aux_texture(0, crt_scan);
         set_aux_texture(2, crt_map);
         id = ShaderId::CrtMap;
     } else {
@@ -282,6 +317,7 @@ void crt_pass(Canvas *canvas, const CrtParams &p) {
     send(id, "mouse_screen_pos", mp, 2);
     send(id, "screen_scale", p.screen_scale);
     send(id, "hovering", 1.0f);
+    if (G.vl_bench == 1) id = ShaderId::Default;  // GPU bench: a plain copy
     set_shader(id);
     draw(canvas, 0, 0);
     set_shader(ShaderId::Default);

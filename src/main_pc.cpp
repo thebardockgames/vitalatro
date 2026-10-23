@@ -50,12 +50,16 @@ int main(int argc, char **argv) {
     for (int i = 3; i < argc; i++) frames.insert(std::atoi(argv[i]));
     int last = frames.empty() ? 600 : *frames.rbegin();
     vl::game_boot();
+    const char *ge = std::getenv("VL_GPU_EST");
     for (int f = 1; f <= last; f++) {
+        // VL_GPU_EST=2 lists the large draws of each captured frame
+        vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);
         vl::game_frame(1.0 / 60);
         if (frames.count(f)) {
             std::string out = prefix + "_" + std::to_string(f) + ".png";
             shot(out);
             vl::platform::log("frame %d -> %s", f, out.c_str());
+            if (std::getenv("VL_GPU_EST")) vl::log_gpu_estimate();
         }
     }
     // the save/sound/audio threads run until the process ends (as on the Vita): skip the static

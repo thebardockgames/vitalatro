@@ -153,7 +153,7 @@ Target &target_for(int w, int h) {
     p.flags = 0;
     p.width = w;
     p.height = h;
-    p.scenesPerFrame = 4;
+    p.scenesPerFrame = 8;  // the dissolve field bakes share their size's target
     p.multisampleMode = SCE_GXM_MULTISAMPLE_NONE;
     p.multisampleLocations = 0;
     p.driverMemBlock = -1;
@@ -164,6 +164,7 @@ Target &target_for(int w, int h) {
                            SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE, &t.depth_uid);
     sceGxmDepthStencilSurfaceInit(&t.depth, SCE_GXM_DEPTH_STENCIL_FORMAT_S8D24,
                                   SCE_GXM_DEPTH_STENCIL_SURFACE_TILED, dw, dmem, nullptr);
+    sceGxmDepthStencilSurfaceSetBackgroundDepth(&t.depth, 1.0f);
     return g_targets[key] = t;
 }
 
@@ -404,9 +405,11 @@ void backend_create_texture(Texture *t, const TextureDesc &d) {
         int stride = ALIGN(d.width, 16) * 4;
         uint8_t *mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)stride * d.height,
                                             SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
-        if (!mem)
+        if (!mem) {
+            platform::log("texture %dx%d in main RAM (CDRAM full)", d.width, d.height);
             mem = (uint8_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, (size_t)stride * d.height,
                                        SCE_GXM_TEXTURE_ALIGNMENT, SCE_GXM_MEMORY_ATTRIB_READ, &g->uid);
+        }
         if (!mem) platform::fatal("out of GPU memory (%dx%d)", d.width, d.height);
         for (int y = 0; y < d.height; y++)
             std::memcpy(mem + (size_t)y * stride, d.rgba + (size_t)y * d.width * 4, (size_t)d.width * 4);
@@ -501,6 +504,11 @@ void backend_create_canvas(Canvas *c) {
     g->mem = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (size_t)bpp * stride * c->h,
                        SCE_GXM_COLOR_SURFACE_ALIGNMENT,
                        SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE, &g->uid);
+    if (!g->mem)  // CDRAM is full once the atlases are loaded: small canvases live in main RAM
+        g->mem = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, (size_t)bpp * stride * c->h,
+                           SCE_GXM_COLOR_SURFACE_ALIGNMENT,
+                           SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE, &g->uid);
+    if (!g->mem) platform::fatal("out of GPU memory (canvas %dx%d)", c->w, c->h);
     sceGxmColorSurfaceInit(&g->surface, f16 ? SCE_GXM_COLOR_FORMAT_F16F16F16F16_ABGR : SCE_GXM_COLOR_FORMAT_A8B8G8R8,
                            SCE_GXM_COLOR_SURFACE_LINEAR, SCE_GXM_COLOR_SURFACE_SCALE_NONE,
                            f16 ? SCE_GXM_OUTPUT_REGISTER_SIZE_64BIT : SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
@@ -520,15 +528,48 @@ void backend_create_canvas(Canvas *c) {
     target_for(c->w, c->h);
 }
 
+// Constant full-target quad (4096x4096 px covers any target) and quad indices, created once and
+// never modified, so they are safe while frames overlap.
+const uint16_t *quad_indices(const Vertex **full_quad) {
+    static Vertex *gq = nullptr;
+    static uint16_t *gi = nullptr;
+    if (!gq) {
+        SceUID quad_uid, idx_uid;
+        gq = (Vertex *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, 4096, 4,
+                                 SCE_GXM_MEMORY_ATTRIB_READ, &quad_uid);
+        gi = (uint16_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, 4096, 4,
+                                   SCE_GXM_MEMORY_ATTRIB_READ, &idx_uid);
+        const uint16_t qidx[6] = {0, 1, 2, 2, 1, 3};
+        std::memcpy(gi, qidx, sizeof qidx);
+        gq[0] = {0, 0, 0, 0, 0};
+        gq[1] = {0, 4096, 0, 0, 0};
+        gq[2] = {4096, 0, 0, 0, 0};
+        gq[3] = {4096, 4096, 0, 0, 0};
+    }
+    if (full_quad) *full_quad = gq;
+    return gi;
+}
+
 void backend_submit(const FrameData &f) {
     Arena &A = g_arenas[g_arena];
     if (A.pending) {
         sceGxmNotificationWait(&A.notif);
         A.pending = false;
     }
-    if (f.vertices.size() * sizeof(Vertex) > kArenaVertexBytes || f.indices.size() * 2 > kArenaIndexBytes)
+    if ((f.vertices.size() + 4 * f.occluders.size()) * sizeof(Vertex) > kArenaVertexBytes || f.indices.size() * 2 > kArenaIndexBytes)
         platform::fatal("frame too large: %u vertices", (unsigned)f.vertices.size());
     std::memcpy(A.vtx, f.vertices.data(), f.vertices.size() * sizeof(Vertex));
+    // occluder rectangles as quads after the frame's vertices
+    Vertex *occ_v = (Vertex *)A.vtx + f.vertices.size();
+    for (size_t i = 0; i < f.occluders.size(); i++) {
+        const Occluder &o = f.occluders[i];
+        occ_v[i * 4 + 0] = {o.x0, o.y0, 0, 0, 0};
+        occ_v[i * 4 + 1] = {o.x0, o.y1, 0, 0, 0};
+        occ_v[i * 4 + 2] = {o.x1, o.y0, 0, 0, 0};
+        occ_v[i * 4 + 3] = {o.x1, o.y1, 0, 0, 0};
+    }
+    size_t oi = 0;
+    bool depth_mode = false;
     std::memcpy(A.idx, f.indices.data(), f.indices.size() * sizeof(uint16_t));
     const Vertex *vbase = (const Vertex *)A.vtx;
     const uint16_t *ibase = (const uint16_t *)A.idx;
@@ -580,6 +621,35 @@ void backend_submit(const FrameData &f) {
             sceGxmSetFrontDepthFunc(g_ctx, SCE_GXM_DEPTH_FUNC_ALWAYS);
             sceGxmSetFrontDepthWriteEnable(g_ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
             ortho(proj, (float)tw, (float)th);
+            // Occluders of this scene: a depth-only pre-pass writes each one's depth inside its
+            // rectangle; every command then draws at its own depth (later = nearer), so whatever an
+            // opaque panel drawn later covers fails the depth test and is never shaded.
+            int scene_end = ci + 1;
+            while (scene_end < (int)f.cmds.size() && f.cmds[scene_end].type != CmdType::Target) scene_end++;
+            while (oi < f.occluders.size() && (int)f.occluders[oi].cmd < ci) oi++;
+            size_t ob = oi;
+            while (oi < f.occluders.size() && (int)f.occluders[oi].cmd < scene_end) oi++;
+            depth_mode = oi > ob;
+            if (depth_mode) {
+                const uint16_t *qi = quad_indices(nullptr);
+                sceGxmSetVertexProgram(g_ctx, g_clear.vp);
+                sceGxmSetFragmentProgram(g_ctx, g_clear.fp);
+                sceGxmSetFrontFragmentProgramEnable(g_ctx, SCE_GXM_FRAGMENT_PROGRAM_DISABLED);
+                sceGxmSetFrontDepthWriteEnable(g_ctx, SCE_GXM_DEPTH_WRITE_ENABLED);
+                sceGxmSetFrontDepthFunc(g_ctx, SCE_GXM_DEPTH_FUNC_LESS);
+                for (size_t k = ob; k < oi; k++) {
+                    sceGxmSetViewport(g_ctx, tw * 0.5f, tw * 0.5f, th * 0.5f, -th * 0.5f,
+                                      occlusion_depth(f.occluders[k].cmd + f.occluders[k].all), 0.5f);
+                    void *ub;
+                    sceGxmReserveVertexDefaultUniformBuffer(g_ctx, &ub);
+                    sceGxmSetUniformDataF(ub, g_clear.p.proj, 0, 16, proj);
+                    sceGxmSetVertexStream(g_ctx, 0, occ_v + k * 4);
+                    sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, qi, 6);
+                }
+                sceGxmSetFrontFragmentProgramEnable(g_ctx, SCE_GXM_FRAGMENT_PROGRAM_ENABLED);
+                sceGxmSetFrontDepthWriteEnable(g_ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+                sceGxmSetFrontDepthFunc(g_ctx, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
+            }
             screen[0] = (float)tw; screen[1] = (float)th; screen[2] = 1; screen[3] = 0;
             cur = nullptr;
             cur_tex = nullptr;
@@ -587,24 +657,12 @@ void backend_submit(const FrameData &f) {
             continue;
         }
         if (!in_scene) continue;
+        if (depth_mode)
+            sceGxmSetViewport(g_ctx, tw * 0.5f, tw * 0.5f, th * 0.5f, -th * 0.5f, occlusion_depth(ci), 0.5f);
         if (c.type == CmdType::Clear) {
-            // Full-target quad with blending disabled. Constant geometry (4096x4096 px covers any
-            // target), created once and never modified, so it is safe while frames overlap.
-            static Vertex *gq = nullptr;
-            static uint16_t *gi = nullptr;
-            if (!gq) {
-                SceUID quad_uid, idx_uid;
-                gq = (Vertex *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, 4096, 4,
-                                         SCE_GXM_MEMORY_ATTRIB_READ, &quad_uid);
-                gi = (uint16_t *)gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, 4096, 4,
-                                           SCE_GXM_MEMORY_ATTRIB_READ, &idx_uid);
-                const uint16_t qidx[6] = {0, 1, 2, 2, 1, 3};
-                std::memcpy(gi, qidx, sizeof qidx);
-                gq[0] = {0, 0, 0, 0, 0};
-                gq[1] = {0, 4096, 0, 0, 0};
-                gq[2] = {4096, 0, 0, 0, 0};
-                gq[3] = {4096, 4096, 0, 0, 0};
-            }
+            // Full-target quad with blending disabled.
+            const Vertex *gq;
+            const uint16_t *gi = quad_indices(&gq);
             sceGxmSetVertexProgram(g_ctx, g_clear.vp);
             sceGxmSetFragmentProgram(g_ctx, g_clear.fp);
             void *ub;

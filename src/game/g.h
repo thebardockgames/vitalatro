@@ -208,7 +208,12 @@ struct Globals {
         XY unzoom(XY p) const { return on ? XY{cx + (p.x - cx) / s, cy + (p.y - cy) / s} : p; }
     } overlay_zoom;
     bool drawing_zoomed = false;
+    // GPU bench (hold L+R): 0 normal, 1 no CRT pass, 2 no background, 3 no overlay menu, 4 no cards,
+    // 5 overlay unzoomed, 6 no occlusion pre-pass, 7 card effect shaders
+    // replaced by the plain card shader, 8-11 one edition shader plain, 12 no background field pass
+    int vl_bench = 0;
     int focused_profile = 1;    // G.focused_profile
+    std::vector<Ref<CardArea>> your_collection;  // G.your_collection (one area for the seals page)
     int CHECK_PROFILE_DATA = -1;  // G.CHECK_PROFILE_DATA: -1 nil, 0 false, 1 true
     TableRef collab_credits;    // G.collab_credits (built by the credits' Collabs tab)
     int TAROT_INTERRUPT = 0;
@@ -239,6 +244,8 @@ struct Globals {
     void delete_run();
     void main_menu(std::string_view change_context = {});
     void splash_screen();
+    void debug_table();
+    bool vl_debug_table = false;  // boot into debug_table() (hold R at boot; VL_DEBUG_TABLE=1 on PC)
     void prep_stage(int new_stage, int new_state, bool new_game_obj);
     TableRef init_game_object();
     void init_item_prototypes();

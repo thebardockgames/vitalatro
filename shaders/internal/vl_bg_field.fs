@@ -20,10 +20,15 @@ number fast_sin(number x)
 }
 number fast_cos(number x) { return fast_sin(x + 1.5707963); }
 
-#define PAINT_STEP \
-    uv2 += fast_sin(max(uv.x, uv.y)) + uv; \
-    uv += 0.5 * vec2(fast_cos(k1 + 0.353 * uv2.y), fast_sin(uv2.x - k2)); \
-    uv -= fast_cos(uv.x + uv.y) - fast_sin(uv.x * 0.711 - uv.y);
+vec2 fast_sin2(vec2 x)
+{
+    vec2 t = fract(x * 0.15915494 + 0.5) * 2.0 - 1.0;
+    vec2 y = 4.0 * t * (1.0 - abs(t));
+    return 0.225 * (y * abs(y) - y) + y;
+}
+
+// the step's two independent pairs of sines evaluated together (same values as one at a time)
+#define PAINT_STEP     uv2 += fast_sin(max(uv.x, uv.y)) + uv;     uv += 0.5 * fast_sin2(vec2(k1 + 0.353 * uv2.y + 1.5707963, uv2.x - k2));     { vec2 cs = fast_sin2(vec2(uv.x + uv.y + 1.5707963, uv.x * 0.711 - uv.y)); uv -= cs.x - cs.y; }
 
 vec4 effect(vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords)
 {

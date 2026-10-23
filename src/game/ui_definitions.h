@@ -1,5 +1,7 @@
 #pragma once
 // functions/UI_definitions.lua: functions that build UI definition tables.
+#include <string>
+
 #include "core/value.h"
 
 namespace vl {
@@ -36,5 +38,11 @@ TableRef create_text_input(const TableRef &args);
 TableRef create_keyboard_input(const TableRef &args);
 TableRef profile_select();             // G.UIDEF.profile_select
 TableRef profile_option(int profile);  // G.UIDEF.profile_option
+TableRef create_UIBox_your_collection();
+// the card pages: kind is the pool (Joker, Tarot, Planet, Spectral, Voucher, Booster)
+TableRef create_UIBox_your_collection_cards(const std::string &kind);
+void collection_fill(const std::string &kind, int page);  // a page's cards + INIT_COLLECTION_CARD_ALERTS
+// Seal, Enhanced, Edition
+TableRef create_UIBox_your_collection_special(const std::string &kind);
 
 }  // namespace vl

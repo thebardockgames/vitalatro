@@ -18,6 +18,12 @@ enum class ShaderId : uint8_t {
     Booster, Voucher, Debuff, Played, Hologram, Vortex, Flame, Flash, Splash, GoldSeal, Skew,
     // Vitalatro's own programs (shaders/internal)
     BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged, BgField8, BgColor8, SplashField, SplashColor, VlDissolve, VlDissolveBaked,
+    VlDissolveField,  // bakes a sprite's dissolve field (the pre-pass of vl_dissolve_baked and vl_dm_*)
+    VlHologramGlow,   // bakes hologram.fs's glow for a sprite (the pre-pass of the hologram variants)
+    // the card shaders with dissolve == 0 (vl_d0_*: no dissolve mask, fast trig), then while
+    // dissolving (vl_dm_*: the mask from the baked field); same order as kShaders in shaders.cpp
+    VlD0Dissolve, VlD0Foil, VlD0Holo, VlD0Polychrome, VlD0Negative, VlD0NegativeShine, VlD0Booster, VlD0Voucher, VlD0Debuff, VlD0Played, VlD0Hologram,
+    VlDmFoil, VlDmHolo, VlDmPolychrome, VlDmNegative, VlDmNegativeShine, VlDmBooster, VlDmVoucher, VlDmDebuff, VlDmPlayed, VlDmHologram,
     Count
 };
 
@@ -37,6 +43,12 @@ struct ShaderInfo {
     bool blend = true;        // false: writes replace the target (love 'replace' blend)
 };
 const ShaderInfo &shader_info(ShaderId id);
+// The vl_d0_* variant of a card shader (same output while dissolve == 0), or the shader itself.
+ShaderId dissolve_zero_variant(ShaderId id);
+// The vl_dm_* variant of a card effect shader (vl_dissolve's mask while dissolving), or the shader itself.
+ShaderId dissolve_fast_variant(ShaderId id);
+// Shaders that take vl_dissolve's CPU-side terms (vl_dis_*).
+bool is_fast_dissolve(ShaderId id);
 constexpr int kMaxUniformFloats = 48;
 
 struct Quad {  // love Quad: viewport in texture "dimension" units
@@ -74,6 +86,16 @@ void texture_dimensions(const Texture *t, float &w, float &h);  // love getDimen
 enum class CanvasFormat : uint8_t { RGBA8, RGBA16F };
 Canvas *create_canvas(int w, int h, CanvasFormat fmt = CanvasFormat::RGBA8, Filter filter = Filter::Linear);
 Texture *canvas_texture(Canvas *c);
+// Small canvases reused across owners: a released canvas becomes available again next frame (this
+// frame's draws may still read it).
+Canvas *acquire_canvas(int w, int h, CanvasFormat fmt, Filter filter);
+void release_canvas(Canvas *c);
+// Records one full-canvas quad with shader `sh` (its current uniforms) into the frame's pre-pass,
+// which the GPU renders before everything else of the frame: c can be sampled by any draw of
+// this frame.
+void prepass_fill(Canvas *c, ShaderId sh, Texture *tex = nullptr);
+// Counts frames (begin_frame).
+uint32_t frame_index();
 
 // Frame
 void begin_frame();
@@ -129,7 +151,15 @@ void draw_glyph_quads(Texture *t, const GlyphVertex *v, int quad_count);
 struct FrameStats {
     int draw_calls, batches_merged, vertices, shader_switches;
     float cpu_ms_submit;
+    float px[(int)ShaderId::Count];  // pixels covered per shader (overdraw included)
 };
+// psp2shaderperf cycles per pixel of a fragment shader, per-instance mode counted 3x (measured ratio)
+float shader_cycles(ShaderId id);
+// GPU time a frame's shading would take, from px * cycles (1 cycle over 960x544 = 0.147 ms on device)
+inline float gpu_estimate_ms(const FrameStats &s, int i) { return s.px[i] * shader_cycles((ShaderId)i) * 2.815e-7f; }
 const FrameStats &last_frame_stats();
+extern bool g_draw_debug;  // PC diagnostics: print the large draws
+// Opaque UI panels hide what was drawn under them from the GPU (depth pre-pass); same image.
+extern bool g_occlusion;
 
 }  // namespace vl::gfx

@@ -82,14 +82,23 @@ public:
     std::vector<DrawStep> draw_steps;
     bool has_draw_steps = false;
 
-    // vl_dissolve_baked.fs: the dissolve noise field of this sprite's cell for a draw major's ID,
-    // computed on a worker thread. nullptr until it is ready (the caller falls back to vl_dissolve).
+    // vl_dissolve_baked.fs / vl_dm_*: the dissolve noise field of this sprite's cell for a draw
+    // major's ID, baked on the GPU (in this frame's pre-pass) the first time it is needed.
+    // One per ID: shared sprites (the undiscovered/locked overlays) are drawn for many cards.
     gfx::Texture *dissolve_field(int id);
-    struct DissolveFieldJob;
-    std::shared_ptr<DissolveFieldJob> dissolve_job;
-    gfx::Texture *dissolve_field_tex = nullptr;
-    int dissolve_field_id = -1;
-    SpritePos dissolve_field_pos;
+    struct DissolveField {
+        int id;
+        SpritePos pos;
+        gfx::Canvas *canvas;
+        int w, h;
+        uint32_t used;  // gfx::frame_index() of the last use
+    };
+    std::vector<DissolveField> dissolve_fields;
+    // the hologram variants: hologram.fs's glow for this sprite's cell, baked on the GPU once
+    gfx::Texture *hologram_glow();
+    gfx::Canvas *glow_canvas = nullptr;
+    SpritePos glow_pos;
+    gfx::Texture *glow_image = nullptr;
 };
 
 class AnimatedSprite : public Sprite {

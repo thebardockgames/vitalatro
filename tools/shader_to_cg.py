@@ -61,6 +61,28 @@ void main(float2 aPosition, float2 aTexCoord, float4 aColor, uniform float4x4 vl
 }
 """
 
+# Vitalatro's rewritten effects: vl_varyings() (vertex stage) feeds vl_effect() three more varyings
+PIXEL_MAIN_VARY = """
+float4 main(float4 vTexCoord : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vl0 : TEXCOORD2,
+            float4 vl1 : TEXCOORD3, float4 vl2 : TEXCOORD4, uniform sampler2D MainTex) : COLOR
+{
+    return vl_effect(vColor, MainTex, vTexCoord.xy, vl0, vl1, vl2);
+}
+"""
+
+VERTEX_MAIN_VARY = """
+void main(float2 aPosition, float2 aTexCoord, float4 aColor, uniform float4x4 vl_Proj,
+          float4 out vPosition : POSITION, float4 out vTexCoord : TEXCOORD0,
+          float4 out vColor : TEXCOORD1, float4 out vl0 : TEXCOORD2, float4 out vl1 : TEXCOORD3,
+          float4 out vl2 : TEXCOORD4)
+{
+    vTexCoord = float4(aTexCoord, 0.0, 0.0);
+    vColor = aColor;
+    vl_varyings(aTexCoord, vl0, vl1, vl2);
+    vPosition = position(vl_Proj, float4(aPosition, 0.0, 1.0));
+}
+"""
+
 DEFAULT_POSITION = """
 float4 position(float4x4 m, float4 p) { return mul(p, m); }
 """
@@ -155,9 +177,12 @@ def convert(code, stage):
         code = re.sub(r'(?<!uniform float )\b%s\b(?!\s*;)' % b, '(%s > 0.5)' % b, code)
 
     has_position = re.search(r'float4\s+position\s*\(', code) is not None
+    vary = 'vl_varyings(' in code
     if stage == 'v':
         return defines + PRELUDE_COMMON + PRELUDE_VERTEX + code + \
-            ('' if has_position else DEFAULT_POSITION) + VERTEX_MAIN
+            ('' if has_position else DEFAULT_POSITION) + (VERTEX_MAIN_VARY if vary else VERTEX_MAIN)
+    if vary:
+        return defines + PRELUDE_COMMON + PRELUDE_PIXEL + code + PIXEL_MAIN_VARY
     has_effect = re.search(r'float4\s+effect\s*\(', code) is not None
     # vertex-only shaders get LOVE's default effect()
     return defines + PRELUDE_COMMON + PRELUDE_PIXEL + code + \

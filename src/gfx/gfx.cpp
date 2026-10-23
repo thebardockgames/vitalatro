@@ -3,6 +3,10 @@
 // matches it vertex for vertex.
 #include "gfx/gfx.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -24,6 +28,7 @@ struct State {
 } S;
 
 FrameData F;
+FrameData P;  // the pre-pass, submitted before F
 FrameStats stats_last{}, stats_cur{};
 Texture *white_tex = nullptr;
 
@@ -38,10 +43,26 @@ void ensure_target() {
     F.cmds.push_back(c);
 }
 
+// Share of the axis-aligned bounds of n points that lies inside the current target (the GPU
+// clips the rest): used for the shading estimate only.
+float visible_share(const float *xy, int n, int stride = 2) {
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (int i = 0; i < n; i++) {
+        float x = xy[i * stride], y = xy[i * stride + 1];
+        x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+    }
+    float w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) return 0;
+    float tw = (float)(S.canvas ? S.canvas->w : backend_screen_width()), th = (float)(S.canvas ? S.canvas->h : backend_screen_height());
+    float cw = std::min(x1, tw) - std::max(x0, 0.f), ch = std::min(y1, th) - std::max(y0, 0.f);
+    return cw > 0 && ch > 0 ? cw * ch / (w * h) : 0.f;
+}
+float visible_share(const Vec2 *p, int n) { return visible_share(&p[0].x, n, sizeof(Vec2) / sizeof(float)); }
+
 // Reserves room for a draw, merging with the previous command when the state is identical.
 // Returns the base vertex index (relative to the command) for the caller's indices.
 uint16_t begin_draw(Texture *tex, uint32_t nverts, uint32_t nindices, uint16_t **out_idx,
-                    Vertex **out_vtx) {
+                    Vertex **out_vtx, bool split = false) {
     ensure_target();
     const ShaderInfo &si = shader_info(S.shader);
     const float *u = S.uniforms[(int)S.shader];
@@ -49,7 +70,7 @@ uint16_t begin_draw(Texture *tex, uint32_t nverts, uint32_t nindices, uint16_t *
     Cmd *last = F.cmds.empty() ? nullptr : &F.cmds.back();
     bool merge = last && last->type == CmdType::Draw && last->shader == S.shader &&
                  last->texture == tex && std::memcmp(last->aux, S.aux, sizeof S.aux) == 0 &&
-                 last->vertex_count + nverts <= 65535;
+                 last->vertex_count + nverts <= 65535 && !split;
     if (merge && S.shader != ShaderId::Default)
         merge = std::memcmp(&F.uniforms[last->uniforms], u, si.block_floats * sizeof(float)) == 0;
 
@@ -90,19 +111,125 @@ void emit_quads_indices(uint16_t *idx, uint16_t base, int quads) {
     }
 }
 
+// An opaque fan (UI panels: Balatro's pixel-stepped rounded rectangles in alpha 1) occludes what
+// was drawn under it: record a large centred axis-aligned rectangle it covers, snapped inwards to
+// whole pixels.
+bool find_occluder(const Vertex *v, int n, float r[4]) {
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (int i = 0; i < n; i++)
+        x0 = std::min(x0, v[i].x), x1 = std::max(x1, v[i].x), y0 = std::min(y0, v[i].y), y1 = std::max(y1, v[i].y);
+    if ((x1 - x0) * (y1 - y0) < 16384) return false;
+    // All fan triangles wound the same way: the area they cover is where the closed outline
+    // v0..v[n-1] has a nonzero winding number.
+    float sign = 0;
+    for (int i = 2; i < n; i++) {
+        float cr = (v[i - 1].x - v[0].x) * (v[i].y - v[0].y) - (v[i - 1].y - v[0].y) * (v[i].x - v[0].x);
+        if (std::fabs(cr) < 1e-3f) continue;
+        if (sign == 0) sign = cr;
+        else if ((cr > 0) != (sign > 0)) return false;
+    }
+    if (sign == 0) return false;
+    // outline edges, without degenerate ones and edge pairs traversed both ways (the spokes to
+    // a centre vertex), which cancel out
+    static std::vector<std::array<float, 4>> E;
+    E.clear();
+    for (int i = 0; i < n; i++) {
+        const Vertex &a = v[i], &b = v[(i + 1) % n];
+        if (a.x == b.x && a.y == b.y) continue;
+        bool cancelled = false;
+        for (auto &e : E)
+            if (e[0] == b.x && e[1] == b.y && e[2] == a.x && e[3] == a.y) {
+                e = E.back();
+                E.pop_back();
+                cancelled = true;
+                break;
+            }
+        if (!cancelled) E.push_back({a.x, a.y, b.x, b.y});
+    }
+    auto winding = [&](float px, float py) {
+        int w = 0;
+        for (auto &e : E) {
+            float cr = (e[2] - e[0]) * (py - e[1]) - (e[3] - e[1]) * (px - e[0]);
+            if (e[1] <= py) { if (e[3] > py && cr > 0) w++; }
+            else if (e[3] <= py && cr < 0) w--;
+        }
+        return w;
+    };
+    // does a segment enter the open box (Liang-Barsky)?
+    auto crosses = [](const std::array<float, 4> &e, float bx0, float by0, float bx1, float by1) {
+        float t0 = 0, t1 = 1, dx = e[2] - e[0], dy = e[3] - e[1];
+        const float p[4] = {-dx, dx, -dy, dy}, q[4] = {e[0] - bx0, bx1 - e[0], e[1] - by0, by1 - e[1]};
+        for (int k = 0; k < 4; k++) {
+            if (p[k] == 0) {
+                if (q[k] <= 0) return false;
+                continue;
+            }
+            float t = q[k] / p[k];
+            if (p[k] < 0) t0 = std::max(t0, t);
+            else t1 = std::min(t1, t);
+            if (t0 >= t1) return false;
+        }
+        return true;
+    };
+    // a rectangle is covered when no edge enters it and its centre has a nonzero winding (the
+    // winding number is then the same all over it); pixel centres lie 0.5 inside its edges
+    auto covered = [&](const float r[4]) {
+        if (winding((r[0] + r[2]) * 0.5f, (r[1] + r[3]) * 0.5f) == 0) return false;
+        for (auto &e : E)
+            if (crosses(e, r[0] + 0.25f, r[1] + 0.25f, r[2] - 0.25f, r[3] - 0.25f)) return false;
+        return true;
+    };
+    auto snapped = [&](float t, float r[4]) {
+        r[0] = std::ceil(x0 + t), r[1] = std::ceil(y0 + t), r[2] = std::floor(x1 - t), r[3] = std::floor(y1 - t);
+        return r[2] > r[0] + 1 && r[3] > r[1] + 1 && covered(r);
+    };
+    // the smallest uniform inset that is covered (about a rounded rectangle's corner radius)
+    float lo = 0, hi = std::min(x1 - x0, y1 - y0) * 0.5f;
+    if (!snapped(hi * 0.9f, r)) return false;
+    hi *= 0.9f;
+    for (int it = 0; it < 12; it++) {
+        float mid = (lo + hi) * 0.5f;
+        if (snapped(mid, r)) hi = mid;
+        else lo = mid;
+    }
+    snapped(hi, r);
+    // only what lies inside the target matters
+    float tw = (float)(S.canvas ? S.canvas->w : backend_screen_width()), th = (float)(S.canvas ? S.canvas->h : backend_screen_height());
+    r[0] = std::max(r[0], 0.f), r[1] = std::max(r[1], 0.f), r[2] = std::min(r[2], tw), r[3] = std::min(r[3], th);
+    return (r[2] - r[0]) * (r[3] - r[1]) >= 8192;
+}
+
 // Untextured geometry in local space, drawn as a triangle fan or strip.
 enum class Topo { Fan, Strip };
 void draw_untextured(const Vec2 *pts, int n, Topo topo) {
     if (n < 3) return;
-    uint16_t *idx;
-    Vertex *v;
-    uint16_t base = begin_draw(white_tex, (uint32_t)n, (uint32_t)(3 * (n - 2)), &idx, &v);
+    static std::vector<Vertex> tv;
+    tv.resize(n);
     const Affine &t = top();
     uint32_t col = S.color.packed();
+    float area2 = 0;
     for (int i = 0; i < n; i++) {
         Vec2 p = t.apply(pts[i]);
-        v[i] = {p.x, p.y, 0.5f, 0.5f, col};
+        tv[i] = {p.x, p.y, 0.5f, 0.5f, col};
+        if (i >= 2) area2 += (tv[i - 1].x - tv[0].x) * (p.y - tv[0].y) - (tv[i - 1].y - tv[0].y) * (p.x - tv[0].x);
     }
+    // an occluder starts its own command, so that it also hides what its batch drew before it
+    float r[4];
+    bool occ = g_occlusion && topo == Topo::Fan && S.shader == ShaderId::Default && S.color.a >= 1.0f &&
+               find_occluder(tv.data(), n, r);
+    uint16_t *idx;
+    Vertex *v;
+    uint16_t base = begin_draw(white_tex, (uint32_t)n, (uint32_t)(3 * (n - 2)), &idx, &v, occ);
+    std::memcpy(v, tv.data(), n * sizeof(Vertex));
+    if (occ) {
+        F.occluders.push_back({(uint32_t)F.cmds.size() - 1, r[0], r[1], r[2], r[3]});
+        if (g_draw_debug) std::fprintf(stderr, "  occluder cmd %u: %.0f,%.0f - %.0f,%.0f\n", (unsigned)F.cmds.size() - 1, r[0], r[1], r[2], r[3]);
+    }
+    float vis = std::fabs(area2) * 0.5f * visible_share(&v[0].x, n, sizeof(Vertex) / sizeof(float));
+    stats_cur.px[(int)S.shader] += vis;
+    if (g_draw_debug && vis > 20000)
+        std::fprintf(stderr, "  poly %s %.0fk n %d col %.2f,%.2f,%.2f,%.2f\n", shader_info(S.shader).name, vis / 1000, n, S.color.r, S.color.g,
+                     S.color.b, S.color.a);
     int k = 0;
     if (topo == Topo::Fan) {
         for (int i = 2; i < n; i++) {
@@ -233,6 +360,48 @@ Canvas *create_canvas(int w, int h, CanvasFormat fmt, Filter filter) {
 
 Texture *canvas_texture(Canvas *c) { return &c->tex; }
 
+namespace {
+struct CanvasPool {
+    std::vector<Canvas *> free, released;  // released: available after this frame
+} canvas_pool;
+}  // namespace
+
+Canvas *acquire_canvas(int w, int h, CanvasFormat fmt, Filter filter) {
+    auto &fr = canvas_pool.free;
+    for (size_t i = 0; i < fr.size(); i++)
+        if (fr[i]->w == w && fr[i]->h == h && fr[i]->format == fmt && fr[i]->filter == filter) {
+            Canvas *c = fr[i];
+            fr.erase(fr.begin() + i);
+            return c;
+        }
+    return create_canvas(w, h, fmt, filter);
+}
+
+void release_canvas(Canvas *c) {
+    if (c) canvas_pool.released.push_back(c);
+}
+
+void prepass_fill(Canvas *c, ShaderId sh, Texture *tex) {
+    std::swap(F, P);
+    Canvas *canvas = S.canvas;
+    const bool dirty = S.target_dirty;
+    const ShaderId shader = S.shader;
+    const Color color = S.color;
+    S.stack.push_back(Affine{});
+    S.canvas = c;
+    S.target_dirty = true;
+    S.shader = sh;
+    S.color = {1, 1, 1, 1};
+    if (tex) draw(tex, Quad{0, 0, 1, 1, 1, 1}, 0, 0, 0, (float)c->w, (float)c->h);  // texture coordinates 0..1
+    else draw(white_tex, 0, 0, 0, (float)c->w, (float)c->h);
+    S.stack.pop_back();
+    S.canvas = canvas;
+    S.target_dirty = dirty;  // F's own target is unchanged
+    S.shader = shader;
+    S.color = color;
+    std::swap(F, P);
+}
+
 bool init() {
     if (!backend_init()) return false;
     const uint8_t white[4] = {255, 255, 255, 255};
@@ -243,15 +412,112 @@ bool init() {
 
 void set_vsync(bool on) { backend_set_vsync(on); }
 
+namespace {
+uint32_t frame_counter = 0;
+}
+uint32_t frame_index() { return frame_counter; }
+
 void begin_frame() {
+    frame_counter++;
     F.reset();
+    P.reset();
     stats_cur = {};
     S.stack.assign(1, Affine{});
     S.canvas = nullptr;
     S.target_dirty = true;
 }
 
+// A canvas drawn once per frame, by a plain axis-aligned quad, into a target where opaque panels
+// cover part of it afterwards: those parts of the canvas are never seen, so its own scene can skip
+// them too (the background under a menu).
+void propagate_occlusion() {
+    if (F.occluders.empty()) return;
+    const int n = (int)F.cmds.size();
+    auto scene_end = [&](int t) {
+        int e = t + 1;
+        while (e < n && F.cmds[e].type != CmdType::Target) e++;
+        return e;
+    };
+    size_t base_count = F.occluders.size();
+    for (int t = 0; t < n; t++) {
+        const Cmd &tc = F.cmds[t];
+        if (tc.type != CmdType::Target || !tc.target) continue;
+        const Texture *ct = &tc.target->tex;
+        const int te = scene_end(t);
+        int consumer = -1, uses = 0;
+        for (int j = 0; j < n; j++) {
+            const Cmd &c = F.cmds[j];
+            if (c.type != CmdType::Draw) continue;
+            bool use = c.texture == ct;
+            for (const Texture *a : c.aux) use = use || a == ct;
+            if (use) uses++, consumer = j;
+        }
+        if (uses != 1 || consumer < te) continue;
+        const Cmd &c = F.cmds[consumer];
+        if (c.shader != ShaderId::Default || c.vertex_count != 4) continue;
+        const Vertex *q = &F.vertices[c.first_vertex];
+        float qx0 = 1e30f, qx1 = -1e30f, qy0 = 1e30f, qy1 = -1e30f, u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+        for (int i = 0; i < 4; i++) qx0 = std::min(qx0, q[i].x), qx1 = std::max(qx1, q[i].x), qy0 = std::min(qy0, q[i].y), qy1 = std::max(qy1, q[i].y);
+        bool aligned = qx1 > qx0 && qy1 > qy0;
+        for (int i = 0; i < 4 && aligned; i++) {
+            bool l = q[i].x == qx0, top = q[i].y == qy0;
+            aligned = (l || q[i].x == qx1) && (top || q[i].y == qy1);
+            (l ? u0 : u1) = q[i].u;
+            (top ? v0 : v1) = q[i].v;
+        }
+        if (!aligned) continue;
+        // the consumer's scene and the occluders drawn over the quad after it
+        int cs = consumer;
+        while (cs > 0 && F.cmds[cs].type != CmdType::Target) cs--;
+        const int ce = scene_end(cs);
+        const float cw = (float)tc.target->w, ch = (float)tc.target->h;
+        for (size_t k = 0; k < base_count; k++) {
+            const Occluder &o = F.occluders[k];
+            if ((int)o.cmd <= consumer || (int)o.cmd >= ce) continue;
+            float x0 = std::max(o.x0, qx0), x1 = std::min(o.x1, qx1), y0 = std::max(o.y0, qy0), y1 = std::min(o.y1, qy1);
+            if (x1 <= x0 || y1 <= y0) continue;
+            // to canvas pixels, one pixel in for the bilinear footprint
+            auto cx = [&](float x) { return (u0 + (u1 - u0) * (x - qx0) / (qx1 - qx0)) * cw; };
+            auto cy = [&](float y) { return (v0 + (v1 - v0) * (y - qy0) / (qy1 - qy0)) * ch; };
+            float a = cx(x0), b = cx(x1), d = cy(y0), e = cy(y1);
+            Occluder r;
+            r.cmd = (uint32_t)te - 1;
+            r.x0 = std::max(0.f, std::ceil(std::min(a, b) + 1)), r.x1 = std::min(cw, std::floor(std::max(a, b) - 1));
+            r.y0 = std::max(0.f, std::ceil(std::min(d, e) + 1)), r.y1 = std::min(ch, std::floor(std::max(d, e) - 1));
+            r.all = true;
+            if ((r.x1 - r.x0) * (r.y1 - r.y0) < 1024) continue;
+            F.occluders.push_back(r);
+            if (g_draw_debug) std::fprintf(stderr, "  canvas occluder scene %d: %.0f,%.0f - %.0f,%.0f\n", t, r.x0, r.y0, r.x1, r.y1);
+        }
+    }
+    if (F.occluders.size() != base_count)
+        std::stable_sort(F.occluders.begin(), F.occluders.end(), [](const Occluder &a, const Occluder &b) { return a.cmd < b.cmd; });
+}
+
+// the pre-pass goes first: F is appended to it
+void merge_prepass() {
+    const uint32_t nc = (uint32_t)P.cmds.size(), nv = (uint32_t)P.vertices.size(), ni = (uint32_t)P.indices.size(),
+                   nu = (uint32_t)P.uniforms.size();
+    for (Cmd c : F.cmds) {
+        if (c.type == CmdType::Draw) c.first_vertex += nv, c.first_index += ni, c.uniforms += nu;
+        P.cmds.push_back(c);
+    }
+    P.vertices.insert(P.vertices.end(), F.vertices.begin(), F.vertices.end());
+    P.indices.insert(P.indices.end(), F.indices.begin(), F.indices.end());
+    P.uniforms.insert(P.uniforms.end(), F.uniforms.begin(), F.uniforms.end());
+    for (Occluder o : F.occluders) {
+        o.cmd += nc;
+        P.occluders.push_back(o);
+    }
+    std::swap(F, P);
+    P.reset();
+}
+
 void end_frame() {
+    if (g_occlusion) propagate_occlusion();
+    if (!P.cmds.empty()) merge_prepass();
+    for (Canvas *c : canvas_pool.released) canvas_pool.free.push_back(c);
+    canvas_pool.released.clear();
     double t0 = time_now();
     backend_submit(F);
     stats_cur.cpu_ms_submit = (float)((time_now() - t0) * 1000.0);
@@ -316,6 +582,16 @@ void draw(Texture *t, const Quad &q, float x, float y, float r, float sx, float 
     uint32_t col = S.color.packed();
     float u0 = q.x / q.sw, v0 = q.y / q.sh, u1 = (q.x + q.w) / q.sw, v1 = (q.y + q.h) / q.sh;
     Vec2 p0 = m.apply(0, 0), p1 = m.apply(0, q.h), p2 = m.apply(q.w, 0), p3 = m.apply(q.w, q.h);
+    {
+        // shading estimate: the quad's area, scaled by the share of its bounds inside the target
+        float area = std::fabs((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
+        const Vec2 corners[4] = {p0, p1, p2, p3};
+        float vis = area * visible_share(corners, 4);
+        stats_cur.px[(int)S.shader] += vis;
+        if (g_draw_debug && vis > 20000)
+            std::fprintf(stderr, "  draw %s %.0fk tex %dx%d col %.2f,%.2f,%.2f,%.2f\n", shader_info(S.shader).name, vis / 1000, (int)t->lw, (int)t->lh,
+                         S.color.r, S.color.g, S.color.b, S.color.a);
+    }
     v[0] = {p0.x, p0.y, u0, v0, col};
     v[1] = {p1.x, p1.y, u0, v1, col};
     v[2] = {p2.x, p2.y, u1, v0, col};
@@ -375,6 +651,8 @@ void draw_glyph_quads(Texture *t, const GlyphVertex *gv, int quad_count) {
 }
 
 const FrameStats &last_frame_stats() { return stats_last; }
+bool g_draw_debug = false;
+bool g_occlusion = true;
 
 uint16_t float_to_half(float f) {
     uint32_t x;

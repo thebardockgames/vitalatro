@@ -67,6 +67,35 @@ void main() {
 }
 )";
 
+// Vitalatro's rewritten effects: vl_varyings() feeds vl_effect() three more varyings
+const char *kVertexMainVary = R"(
+layout(location = 0) in vec4 VertexPosition;
+layout(location = 1) in vec4 VertexTexCoord;
+layout(location = 2) in vec4 VertexColor;
+out vec4 VaryingTexCoord;
+out vec4 VaryingColor;
+out vec4 VaryingVl0, VaryingVl1, VaryingVl2;
+uniform mat4 vl_Proj;
+vec4 position(mat4 clipSpaceFromLocal, vec4 localPosition);
+void main() {
+    VaryingTexCoord = VertexTexCoord;
+    VaryingColor = VertexColor;
+    vl_varyings(VertexTexCoord.st, VaryingVl0, VaryingVl1, VaryingVl2);
+    gl_Position = position(vl_Proj, VertexPosition);
+}
+)";
+
+const char *kPixelMainVary = R"(
+in highp vec4 VaryingTexCoord;
+in mediump vec4 VaryingColor;
+in highp vec4 VaryingVl0, VaryingVl1, VaryingVl2;
+out vec4 love_PixelColor;
+uniform sampler2D MainTex;
+void main() {
+    love_PixelColor = vl_effect(VaryingColor, MainTex, VaryingTexCoord.st, VaryingVl0, VaryingVl1, VaryingVl2);
+}
+)";
+
 const char *kVertexDefaultPosition = R"(
 vec4 position(mat4 m, vec4 p) { return m * p; }
 )";
@@ -107,13 +136,14 @@ GLuint compile(GLenum type, const std::string &src, const char *name) {
 
 void build_program(Program &P, ShaderId id, const std::string &body, const char *name) {
     bool has_position = body.find("vec4 position(") != std::string::npos;
+    bool vary = body.find("vl_varyings(") != std::string::npos;
     std::string vs = std::string("#version 330 core\n#define VERTEX 1\n") + kSyntax +
                      "vec4 Texel(sampler2D s, vec2 uv) { return texture(s, uv); }\n" + body +
-                     (has_position ? "" : kVertexDefaultPosition) + kVertexMain;
+                     (has_position ? "" : kVertexDefaultPosition) + (vary ? kVertexMainVary : kVertexMain);
     // The .fs files are written to compile as both stages (LOVE does the same).
     bool has_effect = body.find("vec4 effect(") != std::string::npos;
-    std::string fs = std::string("#version 330 core\n#define PIXEL 1\n") + kSyntax + kPixelFuncs +
-                     body + (has_effect ? "" : kDefaultEffect) + kPixelMain;
+    std::string fs = std::string("#version 330 core\n#define PIXEL 1\n") + kSyntax + kPixelFuncs + body +
+                     (vary ? kPixelMainVary : std::string(has_effect ? "" : kDefaultEffect) + kPixelMain);
     GLuint v = compile(GL_VERTEX_SHADER, vs, name), f = compile(GL_FRAGMENT_SHADER, fs, name);
     P.prog = glCreateProgram();
     glAttachShader(P.prog, v);
@@ -151,6 +181,15 @@ void ortho(float *m, float w, float h, bool flip_y) {
     m[15] = 1;
 }
 
+// depth buffer of the bound framebuffer (occlusion pre-pass)
+void attach_depth(int w, int h) {
+    GLuint rb;
+    glGenRenderbuffers(1, &rb);
+    glBindRenderbuffer(GL_RENDERBUFFER, rb);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rb);
+}
+
 }  // namespace
 
 bool backend_init() {
@@ -179,6 +218,7 @@ bool backend_init() {
     glGenFramebuffers(1, &g_screen_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, g_screen_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_screen_tex, 0);
+    attach_depth(g_w, g_h);
 
     glGenVertexArrays(1, &g_vao);
     glBindVertexArray(g_vao);
@@ -273,6 +313,7 @@ void backend_create_canvas(Canvas *c) {
     glGenFramebuffers(1, &gc->fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, gc->fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gt->id, 0);
+    attach_depth(c->w, c->h);
     c->impl = gc;
 }
 
@@ -289,8 +330,11 @@ void backend_submit(const FrameData &f) {
     float screen[4];
     int tw = g_w, th = g_h;
     for (Program &p : g_progs) p.cache_valid = false;
+    size_t oi = 0;
+    bool depth_mode = false;
 
-    for (const Cmd &c : f.cmds) {
+    for (int ci = 0; ci < (int)f.cmds.size(); ci++) {
+        const Cmd &c = f.cmds[ci];
         if (c.type == CmdType::Target) {
             if (c.target) {
                 glBindFramebuffer(GL_FRAMEBUFFER, ((GLCanvas *)c.target->impl)->fbo);
@@ -309,7 +353,52 @@ void backend_submit(const FrameData &f) {
                 screen[0] = (float)tw; screen[1] = (float)th; screen[2] = 1; screen[3] = 0;
             }
             glViewport(0, 0, tw, th);
+            // occluders: depth pre-pass, as in the GXM backend
+            int scene_end = ci + 1;
+            while (scene_end < (int)f.cmds.size() && f.cmds[scene_end].type != CmdType::Target) scene_end++;
+            while (oi < f.occluders.size() && (int)f.occluders[oi].cmd < ci) oi++;
+            size_t ob = oi;
+            while (oi < f.occluders.size() && (int)f.occluders[oi].cmd < scene_end) oi++;
+            depth_mode = oi > ob;
+            glDisable(GL_DEPTH_TEST);
+            glDepthRange(0.5, 0.5);
+            if (depth_mode) {
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+                glClearDepth(1.0);
+                glClear(GL_DEPTH_BUFFER_BIT);
+                glDepthFunc(GL_LESS);
+                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                std::vector<Vertex> q;
+                for (size_t k = ob; k < oi; k++) {
+                    const Occluder &o = f.occluders[k];
+                    q = {{o.x0, o.y0, 0, 0, 0}, {o.x0, o.y1, 0, 0, 0}, {o.x1, o.y0, 0, 0, 0},
+                         {o.x1, o.y0, 0, 0, 0}, {o.x0, o.y1, 0, 0, 0}, {o.x1, o.y1, 0, 0, 0}};
+                    GLuint vb;
+                    glGenBuffers(1, &vb);
+                    glBindBuffer(GL_ARRAY_BUFFER, vb);
+                    glBufferData(GL_ARRAY_BUFFER, q.size() * sizeof(Vertex), q.data(), GL_STREAM_DRAW);
+                    glUseProgram(g_clear_prog.prog);
+                    glUniformMatrix4fv(g_clear_prog.loc_proj, 1, GL_FALSE, proj);
+                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)0);
+                    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)8);
+                    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(Vertex), (void *)16);
+                    float d = occlusion_depth(o.cmd + o.all);
+                    glDepthRange(d, d);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glDeleteBuffers(1, &vb);
+                }
+                glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthMask(GL_FALSE);
+                glDepthFunc(GL_LEQUAL);
+                for (Program &p : g_progs) p.cache_valid = false;
+            }
             continue;
+        }
+        if (depth_mode) {
+            float d = occlusion_depth(ci);
+            glDepthRange(d, d);
         }
         if (c.type == CmdType::Clear) {
             glClearColor(c.clear_color.r, c.clear_color.g, c.clear_color.b, c.clear_color.a);

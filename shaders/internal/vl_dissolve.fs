@@ -30,25 +30,41 @@ number fast_sin(number x)
 }
 number fast_cos(number x) { return fast_sin(x + 1.5707963); }
 
-vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
+#ifdef VERTEX
+void vl_varyings(vec2 texture_coords, out vec4 v0, out vec4 v1, out vec4 v2)
+{
+    // sprite pixel coordinates (affine in texture_coords)
+    v0 = vec4(((texture_coords)*(image_details)) - texture_details.xy*texture_details.ba, 0., 0.);
+    v1 = vec4(0.);
+    v2 = vec4(0.);
+}
+#endif
+#ifdef PIXEL
+vec4 fast_sin4(vec4 x)
+{
+    vec4 t = fract(x * 0.15915494 + 0.5) * 2.0 - 1.0;
+    vec4 y = 4.0 * t * (1.0 - abs(t));
+    return 0.225 * (y * abs(y) - y) + y;
+}
+vec4 vl_effect(vec4 colour, Image texture, vec2 texture_coords, vec4 v0, vec4 v1, vec4 v2)
 {
     MY_HIGHP_OR_MEDIUMP vec4 tex = Texel( texture, texture_coords);
-    MY_HIGHP_OR_MEDIUMP vec2 uv = (((texture_coords)*(image_details)) - texture_details.xy*texture_details.ba)/texture_details.ba;
     tex.rgb = mix(tex.rgb, vl_dis_tint.rgb, vl_dis_tint.a);
 
     MY_HIGHP_OR_MEDIUMP number m = max(texture_details.b, texture_details.a);
-    MY_HIGHP_OR_MEDIUMP vec2 floored_uv = floor(uv*texture_details.ba)/m;
+    MY_HIGHP_OR_MEDIUMP vec2 floored_uv = floor(v0.xy)/m;
     MY_HIGHP_OR_MEDIUMP vec2 c = (floored_uv - 0.5) * 2.3 * m;
     MY_HIGHP_OR_MEDIUMP vec2 p1 = c + vl_dis_a.xy;
     MY_HIGHP_OR_MEDIUMP vec2 p2 = c + vl_dis_a.zw;
     MY_HIGHP_OR_MEDIUMP vec2 p3 = c + vl_dis_b.xy;
-    MY_HIGHP_OR_MEDIUMP number field = (1. + (fast_cos(length(p1) / 19.483) + fast_sin(length(p2) / 33.155) * fast_cos(p2.y / 15.73) +
-        fast_cos(length(p3) / 27.193) * fast_sin(p3.x / 21.92))) / 2.;
-
+    // cos(|p1|/19.483), sin(|p2|/33.155), cos(p2.y/15.73), cos(|p3|/27.193); then sin(p3.x/21.92)
+    MY_HIGHP_OR_MEDIUMP vec4 w = fast_sin4(vec4(length(p1) / 19.483 + 1.5707963, length(p2) / 33.155, p2.y / 15.73 + 1.5707963, length(p3) / 27.193 + 1.5707963));
     MY_HIGHP_OR_MEDIUMP number ad = vl_dis_b.z;
+    MY_HIGHP_OR_MEDIUMP number s3 = fast_sin4(vec4(p3.x / 21.92)).x;
+    MY_HIGHP_OR_MEDIUMP number field = (1. + (w.x + w.y * w.z + w.w * s3)) / 2.;
     MY_HIGHP_OR_MEDIUMP vec2 out_hi = max(floored_uv - 0.8, 0.);
     MY_HIGHP_OR_MEDIUMP vec2 out_lo = max(0.2 - floored_uv, 0.);
-    MY_HIGHP_OR_MEDIUMP number res = (.5 + .5 * fast_cos(ad / 82.612 + (field - .5) * 3.14))
+    MY_HIGHP_OR_MEDIUMP number res = (.5 + .5 * fast_sin4(vec4(ad / 82.612 + (field - .5) * 3.14 + 1.5707963)).x)
         - (out_hi.x + out_hi.y + out_lo.x + out_lo.y) * vl_dis_b.w;
 
     MY_HIGHP_OR_MEDIUMP number above = 1. - step(res, ad);           // res > ad
@@ -60,6 +76,7 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
     MY_HIGHP_OR_MEDIUMP number s = shadow ? 1. : 0.;
     return vec4(tex.rgb * (1. - s), above * tex.a * (1. - 0.7 * s));
 }
+#endif
 
 extern MY_HIGHP_OR_MEDIUMP vec2 mouse_screen_pos;
 extern MY_HIGHP_OR_MEDIUMP float hovering;
