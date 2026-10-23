@@ -2,6 +2,7 @@
 // The global G table of the original game. Engine-level state is typed; game data that the
 // original keeps in plain Lua tables (GAME, SETTINGS, PROFILES, C, ...) stays dynamic.
 #include <functional>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -128,6 +129,10 @@ struct Globals {
     // ---------------------------------------------------------------- state
     int STATE = SPLASH, STAGE = MAIN_MENU;
     bool STATE_COMPLETE = false;
+    int playing_card = 0;         // G.playing_card: the last playing card number
+    bool RESET_JIGGLES = false;
+    bool RESET_BLIND_STATES = false;
+    bool TAROT_INTERRUPT_PULSE = false;
     bool STAGE_OBJECT_INTERRUPT = false;
     bool DEBUG = false;
     bool under_overlay = false;
@@ -193,7 +198,9 @@ struct Globals {
     std::vector<std::string> sticker_map;
     Ref<Sprite> SPLASH_BACK, SPLASH_FRONT, SPLASH_LOGO;
     NodeRef MAIN_MENU_UI, buttons, deck_preview, shop, blind_select, booster_pack, GAME_OVER_UI, collection_alert, HUD,
-        HUD_blind, debug_tools, online_leaderboard, achievement_notification, boss_warning_text;
+        HUD_blind, debug_tools, online_leaderboard, achievement_notification, boss_warning_text, blind_prompt_box;
+    std::map<std::string, NodeRef> blind_select_opts;  // G.blind_select_opts.small/big/boss
+    std::vector<NodeRef> HUD_tags;
     int sort_id = 0;
     double last_materialized = 0;
     bool has_last_materialized = false;
@@ -245,6 +252,11 @@ struct Globals {
     void main_menu(std::string_view change_context = {});
     void splash_screen();
     void debug_table();
+    // Game:start_run(args): {stake, seed, challenge, savetext}
+    void start_run(const TableRef &args = nullptr);
+    void update_blind_select(double dt);
+    void update_draw_to_hand(double dt);
+    void update_selecting_hand(double dt);
     bool vl_debug_table = false;  // boot into debug_table() (hold R at boot; VL_DEBUG_TABLE=1 on PC)
     void prep_stage(int new_stage, int new_state, bool new_game_obj);
     TableRef init_game_object();

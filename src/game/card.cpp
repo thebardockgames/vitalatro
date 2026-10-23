@@ -12,6 +12,7 @@
 #include "engine/ui.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/state_events.h"
 #include "game/ui_definitions.h"
 #include "game/sound.h"
 
@@ -544,6 +545,28 @@ double Card::get_nominal(const char *mod) const {
 int Card::get_id() const {
     if (ability->get(K("effect")).equals("Stone Card") && !var("vampired").truthy()) return -(int)lua_math.random(100, 1000000);
     return (int)base->get(K("id")).num();
+}
+
+bool Card::is_face(bool from_boss) const {
+    if (debuff && !from_boss) return false;
+    int id = get_id();
+    return id == 11 || id == 12 || id == 13 || !find_joker("Pareidolia").empty();
+}
+
+bool Card::is_suit(const Value &suit, bool bypass_debuff, bool flush_calc) const {
+    const Value bs = base->get(K("suit"));
+    auto red = [](const Value &s) { return s.equals("Hearts") || s.equals("Diamonds"); };
+    if (flush_calc) {
+        if (ability->get(K("effect")).equals("Stone Card")) return false;
+        if (ability->get(K("name")).equals("Wild Card") && !debuff) return true;
+        if (!find_joker("Smeared Joker").empty() && red(bs) == red(suit)) return true;
+        return bs == suit;
+    }
+    if (debuff && !bypass_debuff) return false;
+    if (ability->get(K("effect")).equals("Stone Card")) return false;
+    if (ability->get(K("name")).equals("Wild Card")) return true;
+    if (!find_joker("Smeared Joker").empty() && red(bs) == red(suit)) return true;
+    return bs == suit;
 }
 
 // ------------------------------------------------------------------ dissolve / materialize
@@ -1288,7 +1311,37 @@ void CardArea::draw() {
                                       state == BUFFOON_PACK || state == PLANET_PACK || state == ROUND_EVAL || state == BLIND_SELECT)) ||
                      (t == "deck" && !(G.deck && this == G.deck.get())) || (t == "shop" && !(G.shop_vouchers && this == G.shop_vouchers.get()));
     if (!invisible) {
-        // TODO(run): area_uibox (card count / voucher placeholder) for hand, jokers, deck and shop areas
+        if (!children.get("area_uibox")) {
+            const bool sv = G.shop_vouchers && this == G.shop_vouchers.get();
+            auto nd = [](int uit, TableRef cfg, TableRef nodes = nullptr) {
+                TableRef t = vl::T({{"n", (double)uit}, {"config", Value(cfg)}});
+                if (nodes) t->set("nodes", Value(nodes));
+                return Value(t);
+            };
+            Value en = Value((Object *)G.LANGUAGES["en-us"].get());
+            Value card_count;
+            if (!sv) {
+                const char *al = (G.jokers && this == G.jokers.get()) ? "cl" : (G.hand && this == G.hand.get()) ? "cm" : "cr";
+                card_count = nd(UIT_R, vl::T({{"align", al}, {"padding", 0.03}, {"no_fill", true}}),
+                                A({nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.1}})),
+                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_count"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_T, vl::T({{"text", "/"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_limit"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.1}}))}));
+            }
+            TableRef inner = new_table();
+            if (sv) {
+                // TODO(run): the shop voucher area's 'DEFEAT BOSS BLIND TO RESTOCK' placeholder (func shop_voucher_empty)
+            }
+            TableRef rcfg = vl::T({{"minw", T->w}, {"minh", T->h}, {"align", "cm"}, {"padding", 0.1}, {"mid", true}, {"r", 0.1}, {"ref_table", Value((Object *)this)}});
+            if (!sv) rcfg->set("colour", Value(A({0, 0, 0, 0.1})));
+            TableRef root_nodes = A({nd(UIT_R, rcfg, inner)});
+            if (card_count.truthy()) root_nodes->push(card_count);
+            UIBox *box = new UIBox(TableRef(nd(UIT_ROOT, vl::T({{"align", "cm"}, {"colour", G.colour("CLEAR")}}), root_nodes).table()),
+                                   vl::T({{"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}, {"major", Value((Object *)this)}, {"parent", Value((Object *)this)}}));
+            children.set("area_uibox", box);
+        }
+        children.get("area_uibox")->draw();
     }
     draw_boundingrect();
     add_to_drawhash(this);
@@ -1509,6 +1562,11 @@ void CardArea::hard_set_cards() {
     }
 }
 
+void CardArea::shuffle(const std::string &seed) {
+    pseudoshuffle(cards, pseudoseed(seed));
+    set_ranks();
+}
+
 void CardArea::sort(const char *method) {
     if (method) config->set("sort", method);
     std::string s = config->get(K("sort")).to_string();
@@ -1591,6 +1649,38 @@ void Back::change_to(const Value &new_back_in) {
     Value p = fld(nb, "unlocked").truthy() ? fld(nb, "pos") : Value(vl::T({{"x", 4}, {"y", 0}}));
     pos->set("x", fld(p, "x"));
     pos->set("y", fld(p, "y"));
+}
+
+void Back::apply_to_run() {
+    Table *cfg = effect->get(K("config")).table();
+    if (!cfg) return;
+    Table *game = G.GAME.get(), *sp = game->get(K("starting_params")).table();
+    auto c = [&](const char *k) { return cfg->get(Value(intern(k))); };
+    if (c("voucher").truthy()) {
+        game->get(K("used_vouchers")).table()->set(c("voucher"), true);
+        game->set("starting_voucher_count", game->get(K("starting_voucher_count")).num() + 1);
+        // TODO(run): Card.apply_to_run(nil, G.P_CENTERS[voucher])
+    }
+    if (c("hands").truthy()) sp->set("hands", sp->get(K("hands")).num() + c("hands").num());
+    if (c("consumables").truthy()) {
+        delay(0.4);
+        // TODO(run): create_card('Tarot', G.consumeables, ...) for each starting consumable
+    }
+    if (c("dollars").truthy()) sp->set("dollars", sp->get(K("dollars")).num() + c("dollars").num());
+    if (c("remove_faces").truthy()) sp->set("no_faces", true);
+    if (c("spectral_rate").truthy()) game->set("spectral_rate", c("spectral_rate"));
+    if (c("discards").truthy()) sp->set("discards", sp->get(K("discards")).num() + c("discards").num());
+    if (c("reroll_discount").truthy()) sp->set("reroll_cost", sp->get(K("reroll_cost")).num() - c("reroll_discount").num());
+    // TODO(run): edition decks, voucher lists, Checkered Deck's suit change
+    if (c("randomize_rank_suit").truthy()) sp->set("erratic_suits_and_ranks", true);
+    if (c("joker_slot").truthy()) sp->set("joker_slots", sp->get(K("joker_slots")).num() + c("joker_slot").num());
+    if (c("hand_size").truthy()) sp->set("hand_size", sp->get(K("hand_size")).num() + c("hand_size").num());
+    if (c("ante_scaling").truthy()) sp->set("ante_scaling", c("ante_scaling"));
+    if (c("consumable_slot").truthy()) sp->set("consumable_slots", sp->get(K("consumable_slots")).num() + c("consumable_slot").num());
+    Table *mods = game->get(K("modifiers")).table();
+    if (c("no_interest").truthy()) mods->set("no_interest", true);
+    if (c("extra_hand_bonus").truthy()) mods->set("money_per_hand", c("extra_hand_bonus"));
+    if (c("extra_discard_bonus").truthy()) mods->set("money_per_discard", c("extra_discard_bonus"));
 }
 
 }  // namespace vl

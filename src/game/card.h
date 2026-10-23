@@ -31,6 +31,8 @@ public:
     void remove_from_deck(bool from_debuff = false);
     double get_nominal(const char *mod = nullptr) const;
     int get_id() const;
+    bool is_face(bool from_boss = false) const;
+    bool is_suit(const Value &suit, bool bypass_debuff = false, bool flush_calc = false) const;
     void start_dissolve(TableRef colours = nullptr, bool silent = false, float time_fac = 1, bool no_juice = false);
     void start_materialize(TableRef colours = nullptr, bool silent = false, float time_fac = 1);
     void set_card_area(CardArea *a);
@@ -112,6 +114,7 @@ public:
     void hard_set_T(float x, float y, float w, float h) override;
     void hard_set_cards();
     void sort(const char *method = nullptr);
+    void shuffle(const std::string &seed = "shuffle");
     bool draw_card_from(CardArea *area, bool stay_flipped = false, bool discarded_only = false);
     void click() override;
     void release(Node *dragged) override {}
@@ -134,6 +137,7 @@ public:
     explicit Back(const Value &selected_back = Value());
     Value get_name() const;
     void change_to(const Value &new_back);
+    void apply_to_run();
 
     std::string name;
     TableRef effect;  // {center, text_UI, config}

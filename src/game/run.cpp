@@ -91,7 +91,11 @@ void bench_frame(double dt, uint32_t buttons) {
     // also once per boot by itself, when a menu (a collection page...) has been open for 5 s
     static double overlay_t = 0;
     static bool auto_done = false;
-    overlay_t = (G.OVERLAY_MENU || G.STAGE == RUN) ? overlay_t + dt : 0;  // (the debug table is a RUN stage)
+#ifdef __vita__
+    overlay_t = (G.OVERLAY_MENU || G.vl_debug_table) ? overlay_t + dt : 0;
+#else
+    overlay_t = 0;  // (PC captures must not be disturbed)
+#endif
     if (!auto_done && overlay_t > 5) {
         auto_done = true;
         bench_hold = 2;

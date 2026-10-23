@@ -7,6 +7,7 @@
 #include "core/lua_sort.h"
 #include "engine/random.h"
 #include "engine/text.h"
+#include "engine/ui.h"
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
@@ -693,6 +694,42 @@ std::string number_format(const Value &num) {
     if (!r.empty() && r.back() == ',') r.pop_back();
     std::reverse(r.begin(), r.end());
     return r;
+}
+
+// get_blind_amount(ante)
+double get_blind_amount(int ante) {
+    const double k = 0.75;
+    Value sc = G.GAME->get(K("modifiers")).get(K("scaling"));
+    static const double a1[8] = {300, 800, 2000, 5000, 11000, 20000, 35000, 50000};
+    static const double a2[8] = {300, 900, 2600, 8000, 20000, 36000, 60000, 100000};
+    static const double a3[8] = {300, 1000, 3200, 9000, 25000, 60000, 110000, 200000};
+    const double *amounts = (!sc.truthy() || sc.num() == 1) ? a1 : sc.num() == 2 ? a2 : sc.num() == 3 ? a3 : nullptr;
+    if (!amounts) return 0;  // nil in the original
+    if (ante < 1) return 100;
+    if (ante <= 8) return amounts[ante - 1];
+    double a = amounts[7], b = 1.6, c = ante - 8, d = 1 + 0.2 * (ante - 8);
+    double amount = std::floor(a * std::pow(b + std::pow(k * c, d), c));
+    amount = amount - std::fmod(amount, std::pow(10, std::floor(std::log10(amount) - 1)));
+    return amount;
+}
+
+TableRef get_blind_main_colour(const Value &blind_in) {
+    bool disabled = false;
+    Value blind = blind_in.truthy() ? blind_in : Value("");
+    if (blind.equals("Boss") || blind.equals("Small") || blind.equals("Big")) {
+        Table *rr = G.GAME->get(K("round_resets")).table();
+        if (!rr->get(K("blind_states")).truthy()) rr->set("blind_states", Value(new_table()));
+        Value st = rr->get(K("blind_states")).get(blind);
+        if (st.equals("Defeated") || st.equals("Skipped")) disabled = true;
+        blind = rr->get(K("blind_choices")).get(blind);
+    }
+    Value pb = G.P_BLINDS->get(blind);
+    auto t = [](const Value &v) { return TableRef(v.table()); };
+    if (disabled || !pb.truthy()) return t(G.colour("BLACK"));
+    if (pb.get(K("boss_colour")).truthy()) return t(pb.get(K("boss_colour")));
+    if (blind.equals("bl_small")) return mix_colours(G.colour("BLUE"), G.colour("BLACK"), 0.6f);
+    if (blind.equals("bl_big")) return mix_colours(G.colour("ORANGE"), G.colour("BLACK"), 0.6f);
+    return t(G.colour("BLACK"));
 }
 
 }  // namespace vl

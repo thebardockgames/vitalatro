@@ -9,6 +9,7 @@
 #include "core/lua_sort.h"
 #include "engine/controller.h"
 #include "engine/event.h"
+#include "engine/particles.h"
 #include "engine/sprite.h"
 #include "engine/text.h"
 #include "engine/ui.h"
@@ -89,6 +90,89 @@ TableRef create_UIBox_notify_alert(const Value &achievement, const Value &type, 
                      A({node(UIT_R, vl::T({{"align", "cm"}, {"r", 0.1}}),
                              A({node(UIT_R, vl::T({{"align", "cm"}, {"r", 0.1}}), A({node(UIT_O, vl::T({{"object", obj(t_s)}}))})), body}))}))}))
             .table());
+}
+
+void attention_text(TableRef args) {
+    if (!args) args = new_table();
+    auto get = [&](const char *k) { return args->get(Value(intern(k))); };
+    if (!get("text").truthy()) args->set("text", "test");
+    if (!get("scale").truthy()) args->set("scale", 1);
+    args->set("colour", copy_table(get("colour").truthy() ? get("colour") : col("WHITE")));
+    args->set("hold", get("hold").num() + 0.1 * G.SPEEDFACTOR);
+    if (!get("pos").truthy()) args->set("pos", Value(vl::T({{"x", 0}, {"y", 0}})));
+    if (!get("align").truthy()) args->set("align", "cm");
+    args->set("fade", 1);
+    if (get("cover").truthy()) {
+        args->set("cover_colour", copy_table(get("cover_colour").truthy() ? get("cover_colour") : col("RED")));
+        args->set("cover_colour_l", copy_table(Value(lighten(get("cover_colour"), 0.2f))));
+        args->set("cover_colour_d", copy_table(Value(darken(get("cover_colour"), 0.2f))));
+    } else {
+        args->set("cover_colour", copy_table(col("CLEAR")));
+    }
+    args->set("uibox_config", Value(vl::T({{"align", get("align")},
+                                           {"offset", get("offset").truthy() ? get("offset") : Value(vl::T({{"x", 0}, {"y", 0}}))},
+                                           {"major", get("cover").truthy() ? get("cover") : get("major")}})));
+
+    EventConfig e = ev_after(0, [args] {
+        auto get = [&](const char *k) { return args->get(Value(intern(k))); };
+        Moveable *cover = dynamic_cast<Moveable *>(get("cover").obj());
+        const double cw = (cover ? cover->T->w : 0.001) + get("cover_padding").num(), ch = (cover ? cover->T->h : 0.001) + get("cover_padding").num();
+        DynaText *dt = new DynaText(vl::T({{"scale", get("scale")}, {"string", get("text")}, {"maxw", get("maxw")}, {"colours", Value(A({get("colour")}))},
+                                           {"float", true}, {"shadow", true}, {"silent", !get("noisy").truthy()}, {"pop_in", 0}, {"pop_in_rate", 6},
+                                           {"rotate", get("rotate")}}));
+        Value pos = get("pos");
+        Transform T{(float)fld(pos, "x").num(), (float)fld(pos, "y").num(), 0, 0, 0, 1};
+        UIBox *AT = new UIBox(TableRef(node(UIT_ROOT,
+                                            vl::T({{"align", get("cover_align").truthy() ? get("cover_align") : Value("cm")}, {"minw", cw}, {"minh", ch},
+                                                   {"padding", 0.03}, {"r", 0.1}, {"emboss", get("emboss")}, {"colour", get("cover_colour")}}),
+                                            A({node(UIT_O, vl::T({{"draw_layer", 1}, {"object", obj(dt)}}))}))
+                                           .table()),
+                              TableRef(get("uibox_config").table()), &T);
+        AT->attention_text = true;
+        args->set("AT", obj(AT));
+        args->set("text", obj(dt));
+        dt->pulse(0.5);
+        if (cover) {
+            new Particles((float)fld(pos, "x").num(), (float)fld(pos, "y").num(), 0, 0,
+                          vl::T({{"timer_type", "TOTAL"}, {"timer", 0.01}, {"pulse_max", 15}, {"max", 0}, {"scale", 0.3}, {"vel_variation", 0.2},
+                                 {"padding", 0.1}, {"fill", true}, {"lifespan", 0.5}, {"speed", 2.5}, {"attach", obj(AT->UIRoot.get())},
+                                 {"colours", Value(A({get("cover_colour"), get("cover_colour_l"), get("cover_colour_d")}))}}));
+        }
+        if (get("backdrop_colour").truthy()) {
+            args->set("backdrop_colour", copy_table(get("backdrop_colour")));
+            double bs = get("backdrop_scale").truthy() ? get("backdrop_scale").num() : 1;
+            new Particles((float)fld(pos, "x").num(), (float)fld(pos, "y").num(), 0, 0,
+                          vl::T({{"timer_type", "TOTAL"}, {"timer", 5}, {"scale", 2.4 * bs}, {"lifespan", 5}, {"speed", 0}, {"attach", obj(AT)},
+                                 {"colours", Value(A({get("backdrop_colour")}))}}));
+        }
+        return true;
+    });
+    e.blockable = false;
+    e.blocking = false;
+    G.E_MANAGER->add_event(e);
+
+    EventConfig e2 = ev_after(args->get(K("hold")).num(), [args] {
+        auto get = [&](const char *k) { return args->get(Value(intern(k))); };
+        if (!get("start_time").truthy()) {
+            args->set("start_time", G.TIMERS.TOTAL);
+            if (auto *dt = dynamic_cast<DynaText *>(get("text").obj())) dt->pop_out(3);
+            return false;
+        }
+        double fade = std::max(0.0, 1 - 3 * (G.TIMERS.TOTAL - get("start_time").num()));
+        args->set("fade", fade);
+        for (const char *k : {"cover_colour", "backdrop_colour"})
+            if (Table *c = get(k).table()) c->set(4, std::min(c->get(4).num(), (k[0] == 'c' ? 2 : 1) * fade));
+        for (const char *k : {"cover_colour_l", "cover_colour_d", "colour"})
+            if (Table *c = get(k).table()) c->set(4, std::min(c->get(4).num(), fade));
+        if (fade <= 0) {
+            if (auto *at = dynamic_cast<UIBox *>(get("AT").obj())) at->remove();
+            return true;
+        }
+        return false;
+    });
+    e2.blockable = false;
+    e2.blocking = false;
+    G.E_MANAGER->add_event(e2);
 }
 
 TableRef create_UIBox_card_alert(const TableRef &args_in) {

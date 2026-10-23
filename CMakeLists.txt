@@ -32,7 +32,9 @@ set(COMMON_SRC
   src/engine/text.cpp
   src/engine/ui.cpp
   src/game/button_callbacks.cpp
+  src/game/blind.cpp
   src/game/card.cpp
+  src/game/tag.cpp
   src/game/common_events.cpp
   src/game/g.cpp
   src/game/game.cpp
@@ -42,7 +44,9 @@ set(COMMON_SRC
   src/game/run.cpp
   src/game/save_manager.cpp
   src/game/sound.cpp
+  src/game/state_events.cpp
   src/game/ui_definitions.cpp
+  src/game/ui_run.cpp
   src/m0/m0.cpp
 )
 

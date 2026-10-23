@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "game/g.h"
 #include "game/run.h"
+#include "game/state_events.h"
 #include "gfx/backend.h"
 #include "gfx/gfx.h"
 #include "m0/m0.h"
@@ -51,7 +53,17 @@ int main(int argc, char **argv) {
     int last = frames.empty() ? 600 : *frames.rbegin();
     vl::game_boot();
     const char *ge = std::getenv("VL_GPU_EST");
+    // VL_TUTORIAL_DONE=1: the profile's tutorial counts as complete; VL_RUN="frame:seed" starts a
+    // seeded run (G.FUNCS.start_run(nil, {seed = seed, stake = 1})) at that frame
+    if (std::getenv("VL_TUTORIAL_DONE")) vl::G.SETTINGS->set("tutorial_complete", true);
+    int run_frame = -1;
+    std::string run_seed;
+    if (const char *r = std::getenv("VL_RUN")) {
+        run_frame = std::atoi(r);
+        if (const char *c = std::strchr(r, ':')) run_seed = c + 1;
+    }
     for (int f = 1; f <= last; f++) {
+        if (f == run_frame) vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", 1}}));
         // VL_GPU_EST=2 lists the large draws of each captured frame
         vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);
         vl::game_frame(1.0 / 60);
@@ -60,6 +72,15 @@ int main(int argc, char **argv) {
             shot(out);
             vl::platform::log("frame %d -> %s", f, out.c_str());
             if (std::getenv("VL_GPU_EST")) vl::log_gpu_estimate();
+            if (std::getenv("VL_DUMP_BG")) {
+                vl::Value b = vl::G.C->get(vl::Value("BACKGROUND"));
+                auto c = [&](const char *k, int i) { return b.get(vl::Value(k)).get(i).num(); };
+                std::printf("BG C=%.4f,%.4f,%.4f L=%.4f,%.4f,%.4f D=%.4f,%.4f,%.4f contrast=%.4f\n", c("C", 1), c("C", 2), c("C", 3), c("L", 1), c("L", 2), c("L", 3),
+                            c("D", 1), c("D", 2), c("D", 3), b.get(vl::Value("contrast")).num());
+                vl::Value sp = vl::G.ARGS->get(vl::Value("spin"));
+                std::printf("SPIN amount=%f real=%f eased=%f BG_T=%f REAL_SHADER=%f\n", sp.get(vl::Value("amount")).num(), sp.get(vl::Value("real")).num(),
+                            sp.get(vl::Value("eased")).num(), vl::G.TIMERS.BACKGROUND, vl::G.TIMERS.REAL_SHADER);
+            }
         }
     }
     // the save/sound/audio threads run until the process ends (as on the Vita): skip the static

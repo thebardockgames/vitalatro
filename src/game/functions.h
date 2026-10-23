@@ -14,6 +14,9 @@ class Card;
 class CardArea;
 struct Atlas;
 
+// copy_table(t)
+inline Value copy_table(const Value &v) { return v.is_table() ? Value(v.table()->deep_copy()) : v; }
+
 // ------------------------------------------------------------------ misc_functions.lua
 // pseudorandom_element(_t, seed): returns the value; *key_out receives the key
 Value pseudorandom_element(const Value &t, const double *seed = nullptr, Value *key_out = nullptr);
@@ -43,6 +46,9 @@ std::pair<Atlas *, Value> get_front_spriteinfo(const Value &front);
 void reset_drawhash();
 void RESET_STATES(int state);
 Value get_stake_col(int stake);
+double get_blind_amount(int ante);
+// either a P_BLINDS key or 'Small'/'Big'/'Boss'
+TableRef get_blind_main_colour(const Value &blind);
 std::string number_format(const Value &num);
 
 // ------------------------------------------------------------------ common_events.lua

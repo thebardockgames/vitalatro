@@ -16,6 +16,9 @@
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/blind.h"
+#include "game/state_events.h"
+#include "game/tag.h"
 #include "game/render.h"
 #include "game/save_manager.h"
 #include "game/sound.h"
@@ -897,6 +900,301 @@ void Globals::debug_table() {
     for (int i = 0; i < 44; i++) add(deck.get(), P_CARDS->get(Value(cards[i % 8])), center("c_base"));
 }
 
+// ------------------------------------------------------------------ Game:start_run
+void Globals::start_run(const TableRef &args_in) {
+    TableRef args = args_in ? args_in : new_table();
+    // TODO(run): continuing a saved run (args.savetext)
+    G_TABLE->set("SAVED_GAME", Value());
+    prep_stage(RUN, BLIND_SELECT, true);
+    STAGE = RUN;
+    STATE_COMPLETE = false;
+    RESET_BLIND_STATES = true;
+    ease_background_colour_blind(STATE, "Small Blind");
+
+    Value sb = (GAME->get(K("viewed_back")).truthy() ? fld(GAME->get(K("viewed_back")).as<Back>() ? Value(GAME->get(K("viewed_back")).as<Back>()->name) : Value(), "") : Value());
+    Value selected_back_name;
+    if (Back *vb = GAME->get(K("viewed_back")).as<Back>()) selected_back_name = Value(vb->name);
+    else if (Back *b = GAME->get(K("selected_back")).as<Back>()) selected_back_name = Value(b->name);
+    else selected_back_name = Value("Red Deck");
+    (void)sb;
+    Value selected_back = get_deck_from_name(selected_back_name);
+    GAME = init_game_object();
+    if (!GAME->get(K("modifiers")).truthy()) GAME->set("modifiers", Value(new_table()));
+    GAME->set("stake", args->get(K("stake")).truthy() ? args->get(K("stake")) : Value(1));
+    GAME->set("STOP_USE", 0);
+    GAME->set("selected_back", Value((Object *)new Back(selected_back)));
+    GAME->set("selected_back_key", selected_back);
+
+    for (int i = 1; i <= 4; i++) {
+        C->get(K("UI_CHIPS")).table()->set(i, C->get(K("BLUE")).get(i));
+        C->get(K("UI_MULT")).table()->set(i, C->get(K("RED")).get(i));
+    }
+
+    Table *mods = GAME->get(K("modifiers")).table(), *sp = GAME->get(K("starting_params")).table();
+    const double stake = GAME->get(K("stake")).num();
+    if (stake >= 2) {
+        if (!mods->get(K("no_blind_reward")).truthy()) mods->set("no_blind_reward", Value(new_table()));
+        mods->get(K("no_blind_reward")).table()->set("Small", true);
+    }
+    if (stake >= 3) mods->set("scaling", 2);
+    if (stake >= 4) mods->set("enable_eternals_in_shop", true);
+    if (stake >= 5) sp->set("discards", sp->get(K("discards")).num() - 1);
+    if (stake >= 6) mods->set("scaling", 3);
+    if (stake >= 7) mods->set("enable_perishables_in_shop", true);
+    if (stake >= 8) mods->set("enable_rentals_in_shop", true);
+    GAME->get(K("selected_back")).as<Back>()->apply_to_run();
+    // TODO(run): challenges (args.challenge)
+
+    Table *rr = GAME->get(K("round_resets")).table(), *cr = GAME->get(K("current_round")).table();
+    rr->set("hands", sp->get(K("hands")));
+    rr->set("discards", sp->get(K("discards")));
+    rr->set("reroll_cost", sp->get(K("reroll_cost")));
+    GAME->set("dollars", sp->get(K("dollars")));
+    GAME->set("base_reroll_cost", sp->get(K("reroll_cost")));
+    rr->set("reroll_cost", GAME->get(K("base_reroll_cost")));
+    cr->set("reroll_cost", GAME->get(K("base_reroll_cost")));
+    GAME->set("chips_text", "");
+
+    Table *pr = GAME->get(K("pseudorandom")).table();
+    if (args->get(K("seed")).truthy()) GAME->set("seeded", true);
+    Value tp = SETTINGS->get(K("tutorial_progress"));
+    pr->set("seed", args->get(K("seed")).truthy() ? args->get(K("seed"))
+                    : !(SETTINGS->get(K("tutorial_complete")).truthy() || fld(fld(tp, "completed_parts"), "big_blind").truthy())
+                        ? Value("TUTORIAL")
+                        : Value(generate_starting_seed()));
+    std::vector<Value> zero_keys;
+    pr->each([&](const Value &k, const Value &v) {
+        if (v.is_num() && v.num() == 0) zero_keys.push_back(k);
+    });
+    for (auto &k : zero_keys) pr->set(k, pseudohash(k.to_string() + pr->get(K("seed")).to_string()));
+    pr->set("hashed_seed", pseudohash(pr->get(K("seed")).to_string()));
+    save_settings();
+
+    if (!rr->get(K("blind_tags")).truthy()) rr->set("blind_tags", Value(new_table()));
+    rr->get(K("blind_choices")).table()->set("Boss", get_new_boss());
+    Value fv = fld(tp, "forced_voucher"), ft = fld(tp, "forced_tags");
+    cr->set("voucher", tp.truthy() && fv.truthy() ? fv : get_next_voucher_key());
+    rr->get(K("blind_tags")).table()->set("Small", tp.truthy() && ft.truthy() ? ft.get(1) : get_next_tag_key());
+    rr->get(K("blind_tags")).table()->set("Big", tp.truthy() && ft.truthy() ? ft.get(2) : get_next_tag_key());
+    CONTROLLER->locks["load"] = true;
+    {
+        EventConfig e = ev_after(3.5, [] {
+            G.CONTROLLER->locks.erase("load");
+            return true;
+        });
+        e.no_delete = true;
+        e.blocking = false;
+        e.blockable = false;
+        e.has_timer = true;
+        e.timer = EventTimer::TOTAL;
+        E_MANAGER->add_event(e);
+    }
+
+    // card areas (set_screen_positions places them)
+    const float CW = CARD_W, CH = CARD_H;
+    consumeables = new CardArea(0, 0, 2.3f * CW, 0.95f * CH,
+                                vl::T({{"card_limit", sp->get(K("consumable_slots"))}, {"type", "joker"}, {"highlight_limit", 1}}));
+    jokers = new CardArea(0, 0, 4.9f * CW, 0.95f * CH, vl::T({{"card_limit", sp->get(K("joker_slots"))}, {"type", "joker"}, {"highlight_limit", 1}}));
+    discard = new CardArea(0, 0, CW, CH, vl::T({{"card_limit", 500}, {"type", "discard"}}));
+    deck = new CardArea(0, 0, CW * 1.1f, 0.95f * CH, vl::T({{"card_limit", 52}, {"type", "deck"}}));
+    hand = new CardArea(0, 0, 6 * CW, 0.95f * CH, vl::T({{"card_limit", sp->get(K("hand_size"))}, {"type", "hand"}}));
+    play = new CardArea(0, 0, 5.3f * CW, 0.95f * CH, vl::T({{"card_limit", 5}, {"type", "play"}}));
+    playing_cards.clear();
+    has_playing_cards = true;
+    set_screen_positions();
+
+    SpritePos p2;
+    p2.x = 2;
+    SPLASH_BACK = new Sprite(-30, -6, ROOM->T->w + 60, ROOM->T->h + 12, &ASSET_ATLAS["ui_1"], p2);
+    {
+        AlignArgs al;
+        al.major = play.get();
+        al.type = "cm";
+        static const Bond strong = Bond::Strong;
+        al.bond = &strong;
+        XY off{0, 0};
+        al.offset = &off;
+        SPLASH_BACK->set_alignment(al);
+    }
+    ARGS->set("spin", Value(vl::T({{"amount", 0}, {"real", 0}, {"eased", 0}})));
+    {
+        DrawStep st;
+        st.shader = gfx::ShaderId::Background;
+        st.send = {{"time", [] { return Value(G.TIMERS.REAL_SHADER); }},
+                   {"spin_time", [] { return Value(G.TIMERS.BACKGROUND); }},
+                   {"colour_1", [] { return fld(G.C->get(K("BACKGROUND")), "C"); }},
+                   {"colour_2", [] { return fld(G.C->get(K("BACKGROUND")), "L"); }},
+                   {"colour_3", [] { return fld(G.C->get(K("BACKGROUND")), "D"); }},
+                   {"contrast", [] { return fld(G.C->get(K("BACKGROUND")), "contrast"); }},
+                   {"spin_amount", [] { return fld(G.ARGS->get(K("spin")), "amount"); }}};
+        SPLASH_BACK->define_draw_steps({st});
+    }
+    {
+        EventConfig e = ev_immediate([] {
+            Table *spin = G.ARGS->get(K("spin")).table();
+            if (!spin) return false;
+            double amount = spin->get(K("amount")).num(), eased = spin->get(K("eased")).num(), real = spin->get(K("real")).num();
+            double _dt = amount > eased ? G.real_dt * 2. : 0.3 * G.real_dt;
+            double delta = real - eased;
+            if (std::fabs(delta) > _dt) delta = delta * _dt / std::fabs(delta);
+            eased += delta;
+            amount = _dt * eased + (1 - _dt) * amount;
+            spin->set("eased", eased);
+            spin->set("amount", amount);
+            G.TIMERS.BACKGROUND = G.TIMERS.BACKGROUND - 60 * (eased - amount) * _dt;
+            return false;
+        });
+        e.blocking = false;
+        e.blockable = false;
+        E_MANAGER->add_event(e);
+    }
+
+    // the deck
+    std::vector<TableRef> protos;
+    P_CARDS->each([&](const Value &k, const Value &) {
+        std::string key(k.str());
+        // TODO(run): erratic decks (starting_params.erratic_suits_and_ranks) and challenge decks
+        std::string r = key.substr(2, 1), s = key.substr(0, 1);
+        bool keep = true;
+        if (sp->get(K("no_faces")).truthy() && (r == "K" || r == "Q" || r == "J")) keep = false;
+        if (keep) protos.push_back(vl::T({{"s", Value(s)}, {"r", Value(r)}}));
+    });
+    if (Table *extra = sp->get(K("extra_cards")).table())
+        extra->each([&](const Value &, const Value &v) { protos.push_back(TableRef(v.table())); });
+    auto proto_key = [](const TableRef &p) {
+        std::string k;
+        for (const char *f : {"s", "r", "e", "d", "g"}) k += p->get(Value(intern(f))).truthy() ? std::string(p->get(Value(intern(f))).str()) : "";
+        return k;
+    };
+    lua_sort(protos, [&](const TableRef &a, const TableRef &b) { return proto_key(a) < proto_key(b); });
+    for (auto &p : protos) card_from_control(p);
+    GAME->set("starting_deck_size", (double)playing_cards.size());
+
+    delay(0.5);
+    cr->set("discards_left", rr->get(K("discards")));
+    cr->set("hands_left", rr->get(K("hands")));
+    deck->shuffle();
+    deck->hard_set_T(deck->T->x, deck->T->y, deck->T->w, deck->T->h);
+    reset_idol_card();
+    reset_mail_rank();
+    cr->get(K("ancient_card")).table()->set("suit", Value());
+    reset_ancient_card();
+    reset_castle_card();
+
+    Blind *blind = new Blind(0, 0, 2, 1);
+    GAME->set("blind", Value((Object *)blind));
+    deck->align_cards();
+    deck->hard_set_cards();
+
+    HUD = new UIBox(create_UIBox_HUD(), vl::T({{"align", "cli"}, {"offset", Value(vl::T({{"x", -0.7}, {"y", 0}}))}, {"major", Value((Object *)ROOM_ATTACH.get())}}));
+    UIBox *hud = dynamic_cast<UIBox *>(HUD.get());
+    HUD_blind = new UIBox(create_UIBox_HUD_blind(), vl::T({{"major", Value((Object *)hud->get_UIE_by_ID("row_blind"))}, {"align", "cm"},
+                                                           {"offset", Value(vl::T({{"x", 0}, {"y", -10}}))}, {"bond", "Weak"}}));
+    HUD_tags.clear();
+
+    check_and_set_high_score("most_money", GAME->get(K("dollars")));
+    blind->set_blind(Value(), false, true);
+    reset_blinds();
+    if (UIElement *bc = dynamic_cast<UIBox *>(HUD_blind.get())->get_UIE_by_ID("HUD_blind_count")) {
+        auto it = FUNCS.find("blind_chip_UI_scale");
+        if (it != FUNCS.end()) it->second(bc);
+    }
+    hud->recalculate();
+
+    E_MANAGER->add_event(ev_immediate([] {
+        unlock_notify();
+        return true;
+    }));
+}
+
+void Globals::update_blind_select(double) {
+    if (buttons) {
+        buttons->remove();
+        buttons = nullptr;
+    }
+    if (shop) {
+        shop->remove();
+        shop = nullptr;
+    }
+    if (STATE_COMPLETE) return;
+    stop_use();
+    ease_background_colour_blind(BLIND_SELECT);
+    E_MANAGER->add_event(ev_immediate([] {
+        save_run();
+        return true;
+    }));
+    STATE_COMPLETE = true;
+    CONTROLLER->interrupt.focus = true;
+    E_MANAGER->add_event(ev_immediate([] {
+        EventConfig e;
+        e.trigger = Trigger::Immediate;
+        e.func = [] {
+            play_sound("cancel");
+            G.blind_select = new UIBox(create_UIBox_blind_select(), vl::T({{"align", "bmi"}, {"offset", Value(vl::T({{"x", 0}, {"y", G.ROOM->T->y + 29}}))},
+                                                                           {"major", Value((Object *)G.hand.get())}, {"bond", "Weak"}}));
+            UIBox *bs = dynamic_cast<UIBox *>(G.blind_select.get());
+            bs->alignment.offset.y = 0.8f - (G.hand->T->y - G.jokers->T->y) + bs->T->h;
+            G.ROOM_jiggle += 3;
+            bs->alignment.offset.x = 0;
+            Table *tags = G.GAME->get(K("tags")).table();
+            for (int i = 1; i <= tags->len(); i++)
+                if (Tag *t = tags->get(i).as<Tag>()) t->apply_to_run(vl::T({{"type", "immediate"}}));
+            for (int i = 1; i <= tags->len(); i++)
+                if (Tag *t = tags->get(i).as<Tag>())
+                    if (t->apply_to_run(vl::T({{"type", "new_blind_choice"}})).truthy()) break;
+            return true;
+        };
+        G.E_MANAGER->add_event(e);
+        return true;
+    }));
+}
+
+void Globals::update_draw_to_hand(double) {
+    if (buttons) {
+        buttons->remove();
+        buttons = nullptr;
+    }
+    if (shop) {
+        shop->remove();
+        shop = nullptr;
+    }
+    if (STATE_COMPLETE) return;
+    STATE_COMPLETE = true;
+    Table *tags = GAME->get(K("tags")).table();
+    for (int i = 1; i <= tags->len(); i++)
+        if (Tag *t = tags->get(i).as<Tag>()) t->apply_to_run(vl::T({{"type", "round_start_bonus"}}));
+    ease_background_colour_blind(DRAW_TO_HAND);
+    E_MANAGER->add_event(ev_immediate([] {
+        if (draw_from_deck_to_hand()) return true;
+        // TODO(run): jokers' calculate_joker{first_hand_drawn = true}
+        G.E_MANAGER->add_event(ev_immediate([] {
+            G.STATE = SELECTING_HAND;
+            G.STATE_COMPLETE = false;
+            G.GAME->get(K("blind")).as<Blind>()->drawn_to_hand();
+            return true;
+        }));
+        return true;
+    }));
+}
+
+void Globals::update_selecting_hand(double) {
+    // TODO(run): the deck preview while hovering the deck
+    if (!buttons && !deck_preview)
+        buttons = new UIBox(create_UIBox_buttons(), vl::T({{"align", "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0.3}}))}, {"major", Value((Object *)hand.get())},
+                                                          {"bond", "Weak"}}));
+    if (buttons && !buttons->states.visible && !deck_preview) buttons->states.visible = true;
+    // TODO(run): end_round() when the hand, deck and play are empty
+    if (shop) {
+        shop->remove();
+        shop = nullptr;
+    }
+    if (!STATE_COMPLETE) {
+        STATE_COMPLETE = true;
+        save_run();
+        CONTROLLER->recall_cardarea_focus("hand");
+    }
+}
+
 void Globals::main_menu(std::string_view change_context) {
     bool splash = change_context == "splash", game = change_context == "game";
     if (!splash) {
@@ -1137,7 +1435,18 @@ void Globals::update(double dt) {
     ed->set(2, 0.7 + 0.2 * (1 + std::sin(TIMERS.REAL * 1.5 + 6)));
 
     E_MANAGER->update(real_dt);
-    // TODO(run): boss warning text, per-state updates (selecting hand, shop, packs, round eval...)
+    // TODO(run): boss warning text
+    if (STATE == SELECTING_HAND) {
+        if (hand && hand->config->get(K("card_limit")).num() > 0 && hand->cards.empty() && !deck->cards.empty()) {
+            STATE = DRAW_TO_HAND;
+            STATE_COMPLETE = false;
+        } else {
+            update_selecting_hand(dt);
+        }
+    }
+    // TODO(run): shop, play tarot, hand played, new round, round eval, packs, game over
+    if (STATE == DRAW_TO_HAND) update_draw_to_hand(dt);
+    if (STATE == BLIND_SELECT) update_blind_select(dt);
 
     ANIMATIONS.each([&](Moveable *v) { v->animate(); });
     exp_times.xy = std::exp(-50 * real_dt);
@@ -1153,7 +1462,20 @@ void Globals::update(double dt) {
         v->states.collide.is = false;
     });
     CONTROLLER->update(real_dt);
-    // TODO(run): loc_blind_states refresh
+    // update loc strings if needed
+    if (STAGE == RUN && GAME->get(K("round_resets")).get(K("blind_states")).truthy()) {
+        Table *rr = GAME->get(K("round_resets")).table();
+        Table *bs = rr->get(K("blind_states")).table();
+        static Value prev_small, prev_large, prev_boss;
+        if (!(prev_small == bs->get(K("Small"))) || !(prev_large == bs->get(K("Big"))) || !(prev_boss == bs->get(K("Boss"))) || RESET_BLIND_STATES) {
+            RESET_BLIND_STATES = false;
+            prev_small = bs->get(K("Small"));
+            prev_large = bs->get(K("Big"));
+            prev_boss = bs->get(K("Boss"));
+            Table *lbs = rr->get(K("loc_blind_states")).table();
+            for (const char *k : {"Small", "Big", "Boss"}) lbs->set(k, localize(bs->get(Value(k)).str(), "blind_states"));
+        }
+    }
 
     // profile versions
     Table *counters = SETTINGS->get(K("profile_counters")).table();

@@ -8,6 +8,8 @@ namespace vl {
 
 TableRef create_popup_UIBox_tooltip(const Value &tooltip);
 TableRef create_UIBox_detailed_tooltip(const Value &joker);
+// attention_text(args): a text that pops in, holds and fades (major/cover/backdrop_colour...)
+void attention_text(TableRef args);
 TableRef create_UIBox_card_alert(const TableRef &args = nullptr);
 TableRef create_UIBox_main_menu_buttons();
 TableRef create_UIBox_profile_button();
@@ -42,6 +44,16 @@ TableRef create_UIBox_your_collection();
 // the card pages: kind is the pool (Joker, Tarot, Planet, Spectral, Voucher, Booster)
 TableRef create_UIBox_your_collection_cards(const std::string &kind);
 void collection_fill(const std::string &kind, int page);  // a page's cards + INIT_COLLECTION_CARD_ALERTS
+// the run's UIs (ui_run.cpp)
+TableRef UIBox_dyn_container(const TableRef &inner, bool horizontal = false, const Value &colour_override = Value(),
+                             const Value &background_override = Value(), bool flipped = false, const Value &padding = Value());
+TableRef create_UIBox_HUD();
+TableRef create_UIBox_HUD_blind();
+void add_tag(class Tag *tag);
+TableRef create_UIBox_blind_select();
+TableRef create_UIBox_blind_tag(const char *blind_choice, bool run_info = false);
+TableRef create_UIBox_blind_choice(const char *type, bool run_info = false);
+TableRef create_UIBox_buttons();
 // Seal, Enhanced, Edition
 TableRef create_UIBox_your_collection_special(const std::string &kind);
 

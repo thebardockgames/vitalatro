@@ -14,6 +14,7 @@
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/state_events.h"
 #include "game/sound.h"
 #include "game/ui_definitions.h"
 #include "platform/platform.h"
@@ -651,6 +652,7 @@ void delete_profile(UIElement *e) {
 
 void register_button_callbacks() {
     auto &F = G.FUNCS;
+    register_run_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
     F["options"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
