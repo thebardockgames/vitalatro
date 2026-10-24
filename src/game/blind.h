@@ -32,6 +32,13 @@ public:
     void align();
     void drawn_to_hand();
     void debuff_card(Card *card, bool from_blind = false);
+    void defeat(bool silent = false);
+    // true when the blind did something on play (the caller juices the HUD)
+    bool press_play();
+    // modify_hand(cards, poker_hands, text, mult, hand_chips) -> mult, hand_chips, modded
+    void modify_hand(const std::vector<Card *> &cards, const TableRef &poker_hands, const std::string &text, double &mult, double &hand_chips,
+                     bool &modded);
+    bool debuff_hand(const std::vector<Card *> &cards, const TableRef &hand, const std::string &handname, bool check);
     void remove() override;
 
     AnimatedSprite *sprite() const { return dynamic_cast<AnimatedSprite *>(children.get("animatedSprite")); }
@@ -46,6 +53,8 @@ public:
     bool disabled = false, boss = false, blind_set = false, prepped = false, hovering = false, block_play = false;
     Value triggered;
     Value discards_sub, hands_sub;
+    TableRef hands;     // The Eye: hands played this round
+    Value only_hand;    // The Mouth: false, or the one hand allowed
     TableRef colour, dark_colour;
     float ambient_tilt = 0.3f;
     float hover_tilt = 0;

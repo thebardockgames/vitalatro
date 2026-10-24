@@ -34,6 +34,21 @@ public:
     bool is_face(bool from_boss = false) const;
     bool is_suit(const Value &suit, bool bypass_debuff = false, bool flush_calc = false) const;
     void start_dissolve(TableRef colours = nullptr, bool silent = false, float time_fac = 1, bool no_juice = false);
+    void shatter();
+    // scoring (card.lua)
+    double get_chip_bonus() const;
+    double get_chip_mult();
+    double get_chip_x_mult() const;
+    double get_chip_h_mult() const;
+    double get_chip_h_x_mult() const;
+    Value get_edition();
+    TableRef get_end_of_round_effect();
+    double get_p_dollars();
+    Value calculate_dollar_bonus() const;
+    Value calculate_seal(const TableRef &context);
+    void calculate_rental();
+    void calculate_perishable();
+    Value calculate_joker(const TableRef &context);
     void start_materialize(TableRef colours = nullptr, bool silent = false, float time_fac = 1);
     void set_card_area(CardArea *a);
     void remove_from_area();
@@ -90,6 +105,7 @@ public:
     bool has_ambient_tilt = true;
     float send_to_shader[2] = {0, 0};
     bool removed = false;
+    bool lucky_trigger = false, shattered = false, destroyed = false;
     Value back_overlay;
 };
 using CardRef = Ref<Card>;
@@ -138,6 +154,8 @@ public:
     Value get_name() const;
     void change_to(const Value &new_back);
     void apply_to_run();
+    // trigger_effect{context = 'final_scoring_step', chips, mult} (Plasma Deck)
+    void trigger_effect_final_scoring(double &chips, double &mult);
 
     std::string name;
     TableRef effect;  // {center, text_UI, config}

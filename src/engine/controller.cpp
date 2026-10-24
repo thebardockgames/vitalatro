@@ -7,6 +7,8 @@
 #include "engine/event.h"
 #include "engine/sprite.h"
 #include "engine/ui.h"
+#include "core/lua_sort.h"
+#include "game/card.h"
 #include "game/button_callbacks.h"
 #include "game/g.h"
 
@@ -53,7 +55,9 @@ void Controller::set_HID_flags(const std::string &type, const std::string &) {
         HID.mouse = type == "mouse";
         if (HID.touch != (type == "touch")) {
             HID.touch = type == "touch";
-            // TODO(cards): for each G.I.CARDAREA v:set_ranks()
+            G.I.CARDAREA.each([](Moveable *v) {
+                if (auto *a = dynamic_cast<CardArea *>(v)) a->set_ranks();
+            });
         }
         HID.touch = type == "touch";
         HID.axis_cursor = type == "axis_cursor";
@@ -439,13 +443,51 @@ void Controller::snap_to(Node *node, const XY *T) {
     snap_cursor_to.is_node = node != nullptr;
 }
 
-bool Controller::save_cardarea_focus(const std::string &) {
-    // TODO(cards): remembers focused.target.rank for G[_cardarea]
+namespace {
+CardArea *named_area(const std::string &n) {
+    if (n == "hand") return G.hand.get();
+    if (n == "jokers") return G.jokers.get();
+    if (n == "consumeables") return G.consumeables.get();
+    if (n == "shop_jokers") return G.shop_jokers.get();
+    if (n == "shop_vouchers") return G.shop_vouchers.get();
+    if (n == "shop_booster") return G.shop_booster.get();
+    if (n == "pack_cards") return G.pack_cards.get();
+    if (n == "play") return G.play.get();
+    if (n == "deck") return G.deck.get();
+    return nullptr;
+}
+}  // namespace
+
+bool Controller::save_cardarea_focus(const std::string &name) {
+    if (CardArea *a = named_area(name)) {
+        Card *c = focused.target && focused.target->is_card() ? static_cast<Card *>(focused.target.get()) : nullptr;
+        if (c && c->area && c->area == a) {
+            cardarea_context[name] = c->rank;
+            return true;
+        }
+        cardarea_context.erase(name);
+    }
     return false;
 }
 
-void Controller::recall_cardarea_focus(const std::string &) {
-    // TODO(cards)
+void Controller::recall_cardarea_focus(const std::string &name) {
+    CardArea *a = named_area(name);
+    Card *ft = focused.target && focused.target->is_card() ? static_cast<Card *>(focused.target.get()) : nullptr;
+    if (a && (!focused.target || interrupt.focus || (!interrupt.focus && ft && ft->area && ft->area == a))) {
+        auto it = cardarea_context.find(name);
+        if (it != cardarea_context.end()) {
+            for (int i = it->second; i >= 1; i--)
+                if (i <= (int)a->cards.size()) {
+                    snap_to(a->cards[i - 1].get());
+                    interrupt.focus = false;
+                    break;
+                }
+        } else if (!a->cards.empty()) {
+            snap_to(a->cards[0].get());
+            interrupt.focus = false;
+        }
+    }
+    cardarea_context.erase(name);
 }
 
 void Controller::update_cursor(const XY *hard_set_T) {
@@ -567,8 +609,9 @@ void Controller::button_press_update(const std::string &button, double dt) {
             }
         }
         if (button == "b") {
-            // TODO(cards): if G.hand and focused.target.area == G.hand then queue_R_cursor_press()
-            interrupt.focus = true;
+            Card *c = focused.target && focused.target->is_card() ? static_cast<Card *>(focused.target.get()) : nullptr;
+            if (G.hand && c && c->area == G.hand.get()) queue_R_cursor_press();
+            else interrupt.focus = true;
         }
     }
 }
@@ -733,7 +776,11 @@ void Controller::queue_L_cursor_press(float x, float y) {
 
 void Controller::queue_R_cursor_press() {
     if (locks["frame"]) return;
-    // TODO(cards): G.hand:unhighlight_all() when cards are highlighted and nothing is being played
+    if (!G.paused() && G.hand && !G.hand->highlighted.empty()) {
+        Value su = G.GAME->get(K("STOP_USE"));
+        if ((G.play && !G.play->cards.empty()) || locked || locks["frame"] || (su.truthy() && su.num() > 0)) return;
+        G.hand->unhighlight_all();
+    }
 }
 
 void Controller::L_cursor_press(const float *px, const float *py) {
@@ -777,7 +824,12 @@ bool Controller::is_node_focusable(Node *node) {
         if (screen_keyboard) {
             if (u && u->box == screen_keyboard.get() && node->config->get(K("button")).truthy()) ret = true;
         } else {
-            // TODO(cards): Card focusable when facing front / in hand / jokers / deck, hover.can, not jimbo
+            if (node->is_card()) {
+                Card *c = static_cast<Card *>(node);
+                // (the deck itself is a CardArea, never a Card: `node == G.deck` cannot hold)
+                if ((c->facing == "front" || (G.hand && c->area == G.hand.get()) || (G.jokers && c->area == G.jokers.get())) && c->states.hover.can)
+                    ret = true;  // TODO(tutorial): not node.jimbo
+            }
             if (node->config->get(K("force_focus")).truthy()) ret = true;
             if (node->config->get(K("button")).truthy() || (u && u->tutorial_disabled.truthy())) ret = true;
             Value fa = focus_args(node);
@@ -835,7 +887,13 @@ void Controller::update_focus(char dir) {
 
     if (!focusables.empty()) {
         if (dir) {
-            // TODO(cards): L/R on a focused card in G.hand moves by rank
+            Card *fc = focused.target && focused.target->is_card() ? static_cast<Card *>(focused.target.get()) : nullptr;
+            if ((dir == 'L' || dir == 'R') && fc && G.hand && fc->area == G.hand.get()) {
+                int nu_rank = fc->rank + (dir == 'L' ? -1 : 1);
+                if (nu_rank > (int)G.hand->cards.size()) nu_rank = 1;
+                if (nu_rank == 0) nu_rank = (int)G.hand->cards.size();
+                if (nu_rank != fc->rank) focus_list.push_back({NodeRef(G.hand->cards[nu_rank - 1].get()), 0});
+            } else {
             XY cp{G.CURSOR->T->x - G.ROOM->T->x, G.CURSOR->T->y - G.ROOM->T->y};
             if (focused.target) {
                 Node *ft = focused.target.get();
@@ -884,6 +942,7 @@ void Controller::update_focus(char dir) {
                 return;
             }
             std::stable_sort(focus_list.begin(), focus_list.end(), [](const FocusItem &a, const FocusItem &b) { return a.dist < b.dist; });
+            }
         } else {
             focus_list.push_back({focused.target ? focused.target : focusables[0], 0});
         }
@@ -907,7 +966,37 @@ bool Controller::capture_focused_input(const std::string &button, const std::str
     bool extern_button = false;
     no_holdcap = false;
 
-    // TODO(cards): coyote-time selection and dpad reordering of a dragged card in its area
+    // 'coyote time': a card in hand counts as selected when the dpad moves on while A is down
+    Card *fc = focused_n && focused_n->is_card() ? static_cast<Card *>(focused_n) : nullptr;
+    auto a_held = held_button_times.find("a");
+    if (input_type == "press" && (button == "dpleft" || button == "dpright") && fc && dragging.target && a_held != held_button_times.end() &&
+        a_held->second < 0.12 && fc->area && fc->area->can_highlight(fc)) {
+        L_cursor_release();
+        navigate_focus(button == "dpleft" ? 'L' : 'R');
+        held_button_times.erase("a");
+        COYOTE_FOCUS = true;
+        ret = true;
+    } else if (input_type == "press" && fc && fc->area && focused_n == dragging.target.get()) {
+        // dpad reordering of the card being dragged
+        CardArea *area = fc->area;
+        fc->states.drag.is = false;
+        auto by_rank = [](const CardRef &a, const CardRef &b) { return a->rank < b->rank; };
+        if (button == "dpleft" && fc->rank > 1) {
+            fc->rank--;
+            area->cards[fc->rank - 1]->rank = fc->rank + 1;
+            lua_sort(area->cards, by_rank);
+            area->align_cards();
+            update_cursor();
+        } else if (button == "dpright" && fc->rank < (int)area->cards.size()) {
+            fc->rank++;
+            area->cards[fc->rank - 1]->rank = fc->rank - 1;
+            lua_sort(area->cards, by_rank);
+            area->align_cards();
+            update_cursor();
+        }
+        fc->states.drag.is = true;
+        ret = true;
+    }
 
     UIBox *overlay = dynamic_cast<UIBox *>(G.OVERLAY_MENU.get());
     bool shoulder = button == "leftshoulder" || button == "rightshoulder";

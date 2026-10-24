@@ -620,6 +620,189 @@ void Card::start_dissolve(TableRef colours, bool silent, float time_fac, bool no
     G.E_MANAGER->add_event(std::move(tail));
 }
 
+void Card::shatter() {
+    const float dissolve_time = 0.7f;
+    shattered = true;
+    dissolve = 0;
+    dissolve_colours = A({Value(A({1, 1, 1, 0.8}))});
+    juice_up_card();
+    Ref<Particles> parts = new Particles(0, 0, 0, 0,
+                                         vl::T({{"timer_type", "TOTAL"},
+                                                {"timer", 0.007 * dissolve_time},
+                                                {"scale", 0.3},
+                                                {"speed", 4},
+                                                {"lifespan", 0.5 * dissolve_time},
+                                                {"attach", Value((Object *)this)},
+                                                {"colours", Value(dissolve_colours)},
+                                                {"fill", true}}));
+    EventConfig e1 = ev_after(0.5 * dissolve_time, [parts, dissolve_time] {
+        parts->fade(0.15 * dissolve_time);
+        return true;
+    });
+    e1.blockable = false;
+    G.E_MANAGER->add_event(std::move(e1));
+    EventConfig e = ev_immediate([] {
+        std::string g = "glass" + std::to_string((int)lua_math.random(1, 6));
+        play_sound(g.c_str(), (float)(lua_math.random() * 0.2 + 0.9), 0.5f);
+        play_sound("generic1", (float)(lua_math.random() * 0.2 + 0.9), 0.5f);
+        return true;
+    });
+    e.blockable = false;
+    G.E_MANAGER->add_event(std::move(e));
+    Ref<Card> self(this);
+    EventConfig ease;
+    ease.trigger = Trigger::Ease;
+    ease.blockable = false;
+    ease.ref = ValueRef::of(&dissolve, this);
+    ease.ease_to = 1;
+    ease.delay = 0.5 * dissolve_time;
+    G.E_MANAGER->add_event(std::move(ease));
+    EventConfig rm = ev_after(0.55 * dissolve_time, [self] {
+        self->remove();
+        return true;
+    });
+    rm.blockable = false;
+    G.E_MANAGER->add_event(std::move(rm));
+    EventConfig tail = ev_after(0.51 * dissolve_time, nullptr);
+    tail.blockable = false;
+    G.E_MANAGER->add_event(std::move(tail));
+}
+
+double Card::get_chip_bonus() const {
+    if (debuff) return 0;
+    const double perma = ability->get(K("perma_bonus")).truthy() ? ability->get(K("perma_bonus")).num() : 0;
+    if (ability->get(K("effect")).equals("Stone Card")) return ability->get(K("bonus")).num() + perma;
+    return base->get(K("nominal")).num() + ability->get(K("bonus")).num() + perma;
+}
+
+double Card::get_chip_mult() {
+    if (debuff) return 0;
+    if (ability->get(K("set")).equals("Joker")) return 0;
+    if (ability->get(K("effect")).equals("Lucky Card")) {
+        if (pseudorandom("lucky_mult") < fld(G.GAME->get(K("probabilities")), "normal").num() / 5) {
+            lucky_trigger = true;
+            return ability->get(K("mult")).num();
+        }
+        return 0;
+    }
+    return ability->get(K("mult")).num();
+}
+
+double Card::get_chip_x_mult() const {
+    if (debuff) return 0;
+    if (ability->get(K("set")).equals("Joker")) return 0;
+    if (ability->get(K("x_mult")).num() <= 1) return 0;
+    return ability->get(K("x_mult")).num();
+}
+
+double Card::get_chip_h_mult() const { return debuff ? 0 : ability->get(K("h_mult")).num(); }
+double Card::get_chip_h_x_mult() const { return debuff ? 0 : ability->get(K("h_x_mult")).num(); }
+
+Value Card::get_edition() {
+    if (debuff || !edition) return Value();
+    TableRef ret = vl::T({{"card", Value((Object *)this)}});
+    if (edition->get(K("x_mult")).truthy()) ret->set("x_mult_mod", edition->get(K("x_mult")));
+    if (edition->get(K("mult")).truthy()) ret->set("mult_mod", edition->get(K("mult")));
+    if (edition->get(K("chips")).truthy()) ret->set("chip_mod", edition->get(K("chips")));
+    return Value(ret);
+}
+
+TableRef Card::get_end_of_round_effect() {
+    TableRef ret = new_table();
+    if (debuff) return ret;
+    if (ability->get(K("h_dollars")).num() > 0) {
+        ret->set("h_dollars", ability->get(K("h_dollars")));
+        ret->set("card", Value((Object *)this));
+    }
+    // TODO(run): the Blue seal's Planet card (create_card, hito 4)
+    return ret;
+}
+
+double Card::get_p_dollars() {
+    if (debuff) return 0;
+    double ret = 0;
+    if (seal.equals("Gold")) ret += 3;
+    if (ability->get(K("p_dollars")).num() > 0) {
+        if (ability->get(K("effect")).equals("Lucky Card")) {
+            if (pseudorandom("lucky_money") < fld(G.GAME->get(K("probabilities")), "normal").num() / 15) {
+                lucky_trigger = true;
+                ret += ability->get(K("p_dollars")).num();
+            }
+        } else {
+            ret += ability->get(K("p_dollars")).num();
+        }
+    }
+    if (ret > 0) {
+        Value db = G.GAME->get(K("dollar_buffer"));
+        G.GAME->set("dollar_buffer", (db.truthy() ? db.num() : 0) + ret);
+        G.E_MANAGER->add_event(ev_immediate([] {
+            G.GAME->set("dollar_buffer", 0);
+            return true;
+        }));
+    }
+    return ret;
+}
+
+Value Card::calculate_dollar_bonus() const {
+    if (debuff) return Value();
+    if (!ability->get(K("set")).equals("Joker")) return Value();
+    const Value nm = ability->get(K("name"));
+    if (nm.equals("Golden Joker")) return ability->get(K("extra"));
+    if (nm.equals("Cloud 9") && ability->get(K("nine_tally")).truthy() && ability->get(K("nine_tally")).num() > 0)
+        return Value(ability->get(K("extra")).num() * ability->get(K("nine_tally")).num());
+    if (nm.equals("Rocket")) return fld(ability->get(K("extra")), "dollars");
+    if (nm.equals("Satellite")) {
+        int planets_used = 0;
+        if (Table *u = G.GAME->get(K("consumeable_usage")).table())
+            u->each([&](const Value &, const Value &v) {
+                if (fld(v, "set").equals("Planet")) planets_used++;
+            });
+        if (planets_used == 0) return Value();
+        return Value(ability->get(K("extra")).num() * planets_used);
+    }
+    Value cr = G.GAME->get(K("current_round"));
+    if (nm.equals("Delayed Gratification") && fld(cr, "discards_used").num() == 0 && fld(cr, "discards_left").num() > 0)
+        return Value(fld(cr, "discards_left").num() * ability->get(K("extra")).num());
+    return Value();
+}
+
+Value Card::calculate_seal(const TableRef &context) {
+    if (debuff) return Value();
+    if (context->get(K("repetition")).truthy() && seal.equals("Red"))
+        return Value(vl::T({{"message", localize("k_again_ex")}, {"repetitions", 1}, {"card", Value((Object *)this)}}));
+    // TODO(run): the Purple seal's Tarot card on discard (create_card, hito 4)
+    return Value();
+}
+
+void Card::calculate_rental() {
+    if (ability->get(K("rental")).truthy()) {
+        ease_dollars(-G.GAME->get(K("rental_rate")).num());
+        card_eval_status_text(this, "dollars", -G.GAME->get(K("rental_rate")).num());
+    }
+}
+
+void Card::calculate_perishable() {
+    if (ability->get(K("perishable")).truthy() && ability->get(K("perish_tally")).num() > 0) {
+        if (ability->get(K("perish_tally")).num() == 1) {
+            ability->set("perish_tally", 0);
+            card_eval_status_text(this, "extra", 0, -1, nullptr, vl::T({{"message", localize("k_disabled_ex")}, {"colour", G.colour("FILTER")}, {"delay", 0.45}}));
+            set_debuff(false);
+        } else {
+            ability->set("perish_tally", ability->get(K("perish_tally")).num() - 1);
+            card_eval_status_text(this, "extra", 0, -1, nullptr,
+                                  vl::T({{"message", localize(vl::T({{"type", "variable"}, {"key", "a_remaining"}, {"vars", Value(A({ability->get(K("perish_tally"))}))}}))},
+                                         {"colour", G.colour("FILTER")},
+                                         {"delay", 0.45}}));
+        }
+    }
+}
+
+Value Card::calculate_joker(const TableRef &) {
+    if (debuff) return Value();
+    // TODO(run): the joker and planet effects (hito 3)
+    return Value();
+}
+
 void Card::start_materialize(TableRef colours, bool silent, float time_fac) {
     float dissolve_time = 0.6f * time_fac;
     states.visible = true;
@@ -1227,9 +1410,7 @@ void CardArea::add_to_highlighted(Card *card, bool silent) {
     }
 }
 
-void CardArea::parse_highlighted() {
-    // TODO(run): poker hand detection + update_hand_text
-}
+void CardArea::parse_highlighted() { parse_hand_highlight(this); }
 
 void CardArea::remove_from_highlighted(Card *card, bool force) {
     if (!force && card && card->ability->get(K("forced_selection")).truthy() && G.hand && this == G.hand.get()) return;
@@ -1681,6 +1862,47 @@ void Back::apply_to_run() {
     if (c("no_interest").truthy()) mods->set("no_interest", true);
     if (c("extra_hand_bonus").truthy()) mods->set("money_per_hand", c("extra_hand_bonus"));
     if (c("extra_discard_bonus").truthy()) mods->set("money_per_discard", c("extra_discard_bonus"));
+}
+
+void Back::trigger_effect_final_scoring(double &chips, double &mult) {
+    if (name != "Plasma Deck") return;
+    const double tot = chips + mult;
+    chips = std::floor(tot / 2);
+    mult = std::floor(tot / 2);
+    update_hand_text(vl::T({{"delay", 0}}), vl::T({{"mult", mult}, {"chips", chips}}));
+    G.E_MANAGER->add_event(ev_immediate([] {
+        Value text = localize("k_balanced");
+        play_sound("gong", 0.94f, 0.3f);
+        play_sound("gong", 0.94f * 1.5f, 0.2f);
+        play_sound("tarot1", 1.5f);
+        ease_colour(TableRef(G.colour("UI_CHIPS").table()), Value(A({0.8, 0.45, 0.85, 1})));
+        ease_colour(TableRef(G.colour("UI_MULT").table()), Value(A({0.8, 0.45, 0.85, 1})));
+        attention_text(vl::T({{"scale", 1.4}, {"text", text}, {"hold", 2}, {"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -2.7}}))},
+                              {"major", Value((Object *)G.play.get())}}));
+        EventConfig e = ev_after(4.3, [] {
+            ease_colour(TableRef(G.colour("UI_CHIPS").table()), G.colour("BLUE"), 2);
+            ease_colour(TableRef(G.colour("UI_MULT").table()), G.colour("RED"), 2);
+            return true;
+        });
+        e.blockable = false;
+        e.blocking = false;
+        G.E_MANAGER->add_event(e);
+        EventConfig e2 = ev_after(6.3, [] {
+            Table *uc = G.colour("UI_CHIPS").table(), *um = G.colour("UI_MULT").table();
+            Table *b = G.colour("BLUE").table(), *r = G.colour("RED").table();
+            for (int i = 1; i <= 4; i++) {
+                uc->set(i, b->get(i));
+                um->set(i, r->get(i));
+            }
+            return true;
+        });
+        e2.blockable = false;
+        e2.blocking = false;
+        e2.no_delete = true;
+        G.E_MANAGER->add_event(e2);
+        return true;
+    }));
+    delay(0.6);
 }
 
 }  // namespace vl

@@ -3,6 +3,7 @@
 #include "game/state_events.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <string>
@@ -573,6 +574,238 @@ bool draw_from_deck_to_hand(int e) {
     return false;
 }
 
+// ------------------------------------------------------------------ poker hands
+// The hands are Lua-like tables of cards (Value(Card*)) because jokers read them by hand name.
+namespace {
+Card *card_at(const Value &t, int i) { return t.get(i).as<Card>(); }
+TableRef cards_table(const std::vector<Card *> &v) {
+    TableRef t = new_table();
+    for (Card *c : v) t->push(Value((Object *)c));
+    return t;
+}
+}  // namespace
+
+TableRef get_X_same(int num, const std::vector<Card *> &hand) {
+    std::vector<TableRef> vals(15);
+    for (int i = (int)hand.size(); i >= 1; i--) {
+        std::vector<Card *> curr{hand[i - 1]};
+        for (int j = 1; j <= (int)hand.size(); j++)
+            if (hand[i - 1]->get_id() == hand[j - 1]->get_id() && i != j) curr.push_back(hand[j - 1]);
+        if ((int)curr.size() == num) {
+            int id = curr[0]->get_id();
+            if (id >= 1 && id <= 14) vals[id] = cards_table(curr);
+            // (a Stone Card's random negative id lands outside vals[1..14])
+        }
+    }
+    TableRef ret = new_table();
+    for (int i = 14; i >= 1; i--)
+        if (vals[i] && vals[i]->len() > 0) ret->push(Value(vals[i]));
+    return ret;
+}
+
+TableRef get_flush(const std::vector<Card *> &hand) {
+    TableRef ret = new_table();
+    const bool four_fingers = !find_joker("Four Fingers").empty();
+    const int need = 5 - (four_fingers ? 1 : 0);
+    if ((int)hand.size() > 5 || (int)hand.size() < need) return ret;
+    for (const char *suit : {"Spades", "Hearts", "Clubs", "Diamonds"}) {
+        std::vector<Card *> t;
+        for (Card *c : hand)
+            if (c->is_suit(Value(suit), false, true)) t.push_back(c);
+        if ((int)t.size() >= need) {
+            ret->push(Value(cards_table(t)));
+            return ret;
+        }
+    }
+    return new_table();
+}
+
+TableRef get_straight(const std::vector<Card *> &hand) {
+    TableRef ret = new_table();
+    const bool four_fingers = !find_joker("Four Fingers").empty();
+    const int need = 5 - (four_fingers ? 1 : 0);
+    if ((int)hand.size() > 5 || (int)hand.size() < need) return ret;
+    std::vector<std::vector<Card *>> IDS(15);
+    std::vector<bool> has(15, false);
+    for (Card *c : hand) {
+        int id = c->get_id();
+        if (id > 1 && id < 15) {
+            IDS[id].push_back(c);
+            has[id] = true;
+        }
+    }
+    std::vector<Card *> t;
+    int straight_length = 0;
+    bool straight = false;
+    const bool can_skip = !find_joker("Shortcut").empty();
+    bool skipped_rank = false;
+    for (int j = 1; j <= 14; j++) {
+        int k = j == 1 ? 14 : j;
+        if (has[k]) {
+            straight_length++;
+            skipped_rank = false;
+            for (Card *c : IDS[k]) t.push_back(c);
+        } else if (can_skip && !skipped_rank && j != 14) {
+            skipped_rank = true;
+        } else {
+            straight_length = 0;
+            skipped_rank = false;
+            if (!straight) t.clear();
+            if (straight) break;
+        }
+        if (straight_length >= need) straight = true;
+    }
+    if (!straight) return ret;
+    ret->push(Value(cards_table(t)));
+    return ret;
+}
+
+TableRef get_highest(const std::vector<Card *> &hand) {
+    Card *highest = nullptr;
+    for (Card *c : hand)
+        if (!highest || c->get_nominal() > highest->get_nominal()) highest = c;
+    if (!hand.empty()) return A({Value(cards_table({highest}))});
+    return new_table();
+}
+
+TableRef evaluate_poker_hand(const std::vector<Card *> &hand) {
+    static const char *names[] = {"Flush Five", "Flush House", "Five of a Kind", "Straight Flush", "Four of a Kind", "Full House",
+                                  "Flush", "Straight", "Three of a Kind", "Two Pair", "Pair", "High Card"};
+    TableRef results = new_table();
+    for (const char *n : names) results->set(n, Value(new_table()));
+    auto R = [&](const char *n) { return TableRef(results->get(Value(n)).table()); };
+    auto set_top = [&](const char *n) {
+        if (!results->get(K("top")).truthy()) results->set("top", results->get(Value(n)));
+    };
+    auto concat = [](const Value &a, const Value &b) {
+        TableRef h = new_table();
+        if (Table *ta = a.table())
+            for (int i = 1; i <= ta->len(); i++) h->push(ta->get(i));
+        if (Table *tb = b.table())
+            for (int i = 1; i <= tb->len(); i++) h->push(tb->get(i));
+        return h;
+    };
+    TableRef _5 = get_X_same(5, hand), _4 = get_X_same(4, hand), _3 = get_X_same(3, hand), _2 = get_X_same(2, hand);
+    TableRef _flush = get_flush(hand), _straight = get_straight(hand), _highest = get_highest(hand);
+    auto any = [](const TableRef &t) { return t->len() > 0; };
+
+    if (any(_5) && any(_flush)) {
+        results->set("Flush Five", Value(_5));
+        set_top("Flush Five");
+    }
+    if (any(_3) && any(_2) && any(_flush)) {
+        R("Flush House")->push(Value(concat(_3->get(1), _2->get(1))));
+        set_top("Flush House");
+    }
+    if (any(_5)) {
+        results->set("Five of a Kind", Value(_5));
+        set_top("Five of a Kind");
+    }
+    if (any(_flush) && any(_straight)) {
+        TableRef ret = new_table();
+        Table *f = _flush->get(1).table(), *s = _straight->get(1).table();
+        for (int i = 1; i <= f->len(); i++) ret->push(f->get(i));
+        for (int i = 1; i <= s->len(); i++) {
+            bool in = false;
+            for (int j = 1; j <= f->len(); j++)
+                if (f->get(j).obj() == s->get(i).obj()) in = true;
+            if (!in) ret->push(s->get(i));
+        }
+        results->set("Straight Flush", Value(A({Value(ret)})));
+        set_top("Straight Flush");
+    }
+    if (any(_4)) {
+        results->set("Four of a Kind", Value(_4));
+        set_top("Four of a Kind");
+    }
+    if (any(_3) && any(_2)) {
+        R("Full House")->push(Value(concat(_3->get(1), _2->get(1))));
+        set_top("Full House");
+    }
+    if (any(_flush)) {
+        results->set("Flush", Value(_flush));
+        set_top("Flush");
+    }
+    if (any(_straight)) {
+        results->set("Straight", Value(_straight));
+        set_top("Straight");
+    }
+    if (any(_3)) {
+        results->set("Three of a Kind", Value(_3));
+        set_top("Three of a Kind");
+    }
+    if (_2->len() == 2 || (_3->len() == 1 && _2->len() == 1)) {
+        Value b = _2->get(2).truthy() ? _2->get(2) : _3->get(1);
+        R("Two Pair")->push(Value(concat(_2->get(1), b)));
+        set_top("Two Pair");
+    }
+    if (any(_2)) {
+        results->set("Pair", Value(_2));
+        set_top("Pair");
+    }
+    if (any(_highest)) {
+        results->set("High Card", Value(_highest));
+        set_top("High Card");
+    }
+    auto first_n = [&](const char *from, int n) {
+        Table *t = R(from).get();
+        TableRef r = new_table();
+        for (int i = 1; i <= n; i++) r->set(i, t->get(i));  // {t[1], ..., t[n]}: trailing nils are dropped
+        return r;
+    };
+    if (R("Five of a Kind")->get(1).truthy()) results->set("Four of a Kind", Value(first_n("Five of a Kind", 4)));
+    if (R("Four of a Kind")->get(1).truthy()) results->set("Three of a Kind", Value(first_n("Four of a Kind", 3)));
+    if (R("Three of a Kind")->get(1).truthy()) results->set("Pair", Value(first_n("Three of a Kind", 2)));
+    return results;
+}
+
+void set_hand_usage(const std::string &hand_label) {
+    std::string hand;
+    for (char c : hand_label)
+        if (!std::isspace((unsigned char)c)) hand += c;
+    auto bump = [&](Table *usage) {
+        if (!usage) return;
+        Value u = usage->get(Value(hand));
+        if (u.truthy()) u.table()->set("count", u.get(K("count")).num() + 1);
+        else usage->set(Value(hand), Value(vl::T({{"count", 1}, {"order", Value(hand_label)}})));
+    };
+    bump(G.PROFILES->get(G.SETTINGS->get(K("profile"))).get(K("hand_usage")).table());
+    bump(G.GAME->get(K("hand_usage")).table());
+    G.save_settings();
+}
+
+// G.FUNCS.get_poker_hand_info(_cards): text, loc_disp_text, poker_hands, scoring_hand, disp_text
+PokerHandInfo get_poker_hand_info(const std::vector<Card *> &cards) {
+    PokerHandInfo info;
+    info.poker_hands = evaluate_poker_hand(cards);
+    info.scoring_hand = new_table();
+    info.text = "NULL";
+    static const char *order[] = {"Flush Five", "Flush House", "Five of a Kind", "Straight Flush", "Four of a Kind", "Full House",
+                                  "Flush", "Straight", "Three of a Kind", "Two Pair", "Pair", "High Card"};
+    for (const char *n : order) {
+        Table *t = info.poker_hands->get(Value(n)).table();
+        bool any = false;
+        t->each([&](const Value &, const Value &) { any = true; });  // next(poker_hands[n])
+        if (any) {
+            info.text = n;
+            info.scoring_hand = TableRef(t->get(1).table());
+            if (!info.scoring_hand) info.scoring_hand = new_table();
+            break;
+        }
+    }
+    info.disp_text = info.text;
+    if (info.text == "Straight Flush") {
+        int min = 10;
+        for (int j = 1; j <= info.scoring_hand->len(); j++) {
+            int id = card_at(Value(info.scoring_hand), j)->get_id();
+            if (id < min) min = id;
+        }
+        if (min >= 10) info.disp_text = "Royal Flush";
+    }
+    info.loc_disp_text = localize(info.disp_text, "poker_hands");
+    return info;
+}
+
 // ------------------------------------------------------------------ G.FUNCS of the run
 namespace {
 UIBox *as_box(const NodeRef &n) { return dynamic_cast<UIBox *>(n.get()); }
@@ -908,8 +1141,89 @@ void register_run_callbacks() {
             G.ARGS->set("hand_chip_total_UI_set", total);
         }
     };
-    F["flame_handler"] = [](UIElement *) {
-        // TODO(run): the score flames (G.FUNCS.flame_handler)
+    F["flame_handler"] = [](UIElement *e) {
+        Table *C = G.C.get();
+        if (!C->get(K("UI_CHIPLICK")).truthy()) C->set("UI_CHIPLICK", Value(A({1, 1, 1, 1})));
+        if (!C->get(K("UI_MULTLICK")).truthy()) C->set("UI_MULTLICK", Value(A({1, 1, 1, 1})));
+        Table *chl = C->get(K("UI_CHIPLICK")).table(), *mul = C->get(K("UI_MULTLICK")).table();
+        Table *uc = C->get(K("UI_CHIPS")).table(), *um = C->get(K("UI_MULT")).table(), *y = C->get(K("YELLOW")).table();
+        for (int i = 1; i <= 3; i++) {
+            auto lick = [&](Table *c) { return std::min(std::max(std::pow(c->get(i).num() * 0.5 + y->get(i).num() * 0.5 + 0.1, 2.0), 0.1), 1.0); };
+            chl->set(i, lick(uc));
+            mul->set(i, lick(um));
+        }
+        struct FH {
+            const char *id, *arg_tab, *colour, *accent;
+            int ID = -1;
+        };
+        static FH handlers[2] = {{"flame_chips", "chip_flames", "UI_CHIPS", "UI_CHIPLICK"}, {"flame_mult", "mult_flames", "UI_MULT", "UI_MULTLICK"}};
+        for (FH &v : handlers) {
+            if (!cfgv(e, "id").equals(v.id)) continue;
+            Node *o = e->config->get(K("object")).obj() ? dynamic_cast<Node *>(e->config->get(K("object")).obj()) : nullptr;
+            Sprite *sp = dynamic_cast<Sprite *>(o);
+            if (!sp || sp->ID != v.ID) {
+                if (o) o->remove();
+                SpritePos pos;
+                pos.x = 2;
+                pos.y = 0;
+                sp = new Sprite(0, 0, 2.5f, 2.5f, &G.ASSET_ATLAS["ui_1"], pos);
+                e->config->set("object", Value((Object *)sp));
+                v.ID = sp->ID;
+                TableRef F = vl::T({{"intensity", 0}, {"real_intensity", 0}, {"intensity_vel", 0}, {"colour_1", C->get(Value(v.colour))},
+                                    {"colour_2", C->get(Value(v.accent))}, {"timer", G.TIMERS.REAL}});
+                G.ARGS->set(v.arg_tab, Value(F));
+                AlignArgs al;
+                al.major = dynamic_cast<Moveable *>(e->parent);
+                static const Bond weak = Bond::Weak;
+                al.bond = &weak;
+                al.type = "bmi";
+                XY off{0, 0};
+                al.offset = &off;
+                sp->set_alignment(al);
+                DrawStep st;
+                st.shader = gfx::ShaderId::Flame;
+                Ref<Sprite> sr(sp);
+                const float id = (float)sp->ID;
+                auto fget = [F](const char *k) { return [F, k] { return F->get(Value(intern(k))); }; };
+                st.send = {{"time", fget("timer")},
+                           {"amount", fget("real_intensity")},
+                           {"image_details", [sr] { return Value(A({sr->image_dims[0], sr->image_dims[1]})); }},
+                           {"texture_details",
+                            [sr] {
+                                float p[4];
+                                sr->get_pos_pixel(p);
+                                return Value(A({p[0], p[1], p[2], p[3]}));
+                            }},
+                           {"colour_1", fget("colour_1")},
+                           {"colour_2", fget("colour_2")},
+                           {"id", [id] { return Value(id); }}};
+                sp->define_draw_steps({st});
+            }
+            Table *F = G.ARGS->get(Value(v.arg_tab)).table();
+            const double dt = G.real_dt;
+            const double exptime = std::exp(-0.4 * dt);
+            Table *ch = gt("current_round")->get(K("current_hand")).table();
+            Value hc = ch->get(K("chips")), hm = ch->get(K("mult"));
+            const double earned = hc.is_num() && hm.is_num() ? hc.num() * hm.num() : 0;
+            Blind *b = game_blind();
+            const double required = b ? b->chips : 0;
+            double intensity = 0;
+            if (earned >= required && required > 0)
+                intensity = ((G.pack_cards && !G.pack_cards->REMOVED) || G.TAROT_INTERRUPT) ? 0 : std::max(0.0, std::log(earned) / std::log(5.0) - 2);
+            F->set("intensity", intensity);
+            double timer = F->get(K("timer")).num() + dt * (1 + intensity * 0.2);
+            F->set("timer", timer);
+            double vel = F->get(K("intensity_vel")).num(), real = F->get(K("real_intensity")).num();
+            if (vel < 0) vel *= (1 - 10 * dt);
+            vel = (1 - exptime) * (intensity - real) * dt * 25 + exptime * vel;
+            real = std::max(0.0, real + vel);
+            F->set("intensity_vel", vel);
+            F->set("real_intensity", real);
+            // flame.fs returns transparent below amount 0.1: skip the costly draw then (same image)
+            if (auto *fs = dynamic_cast<Sprite *>(e->config->get(K("object")).obj())) fs->states.visible = real >= 0.1;
+            Value chg = F->get(K("change"));
+            F->set("change", (chg.truthy() ? chg.num() : 0) * (1 - 4. * dt) + (4. * dt) * (real < intensity - 0.0 ? 1 : 0) * real);
+        }
     };
     F["hand_text_UI_set"] = [](UIElement *e) {
         Table *ch = gt("current_round")->get(K("current_hand")).table();
@@ -960,11 +1274,28 @@ void register_run_callbacks() {
     F["run_info"] = [](UIElement *) {
         // TODO(run): the run info overlay
     };
-    F["play_cards_from_highlighted"] = [](UIElement *) {
-        // TODO(run): playing a hand (hito 2)
-    };
-    F["discard_cards_from_highlighted"] = [](UIElement *) {
-        // TODO(run): discarding (hito 2)
+    F["play_cards_from_highlighted"] = [](UIElement *) { play_cards_from_highlighted(); };
+    F["discard_cards_from_highlighted"] = [](UIElement *) { discard_cards_from_highlighted(); };
+    F["cash_out"] = cash_out;
+    F["go_to_menu"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        G.E_MANAGER->clear_queue();
+        wipe_on();
+        EventConfig a = ev_immediate([] {
+            G.delete_run();
+            return true;
+        });
+        a.no_delete = true;
+        G.E_MANAGER->add_event(std::move(a));
+        EventConfig b = ev_immediate([] {
+            G.main_menu("game");
+            return true;
+        });
+        b.no_delete = true;
+        b.blockable = true;
+        b.blocking = false;
+        G.E_MANAGER->add_event(std::move(b));
+        wipe_off();
     };
     F["start_run"] = start_run_fn;
     F["setup_run"] = start_run_fn;

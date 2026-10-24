@@ -1,11 +1,13 @@
 // blind.lua
 #include "game/blind.h"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
 #include "engine/controller.h"
 #include "engine/event.h"
+#include "engine/particles.h"
 #include "engine/random.h"
 #include "engine/text.h"
 #include "engine/ui.h"
@@ -13,6 +15,7 @@
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/sound.h"
+#include "game/state_events.h"
 #include "game/ui_definitions.h"
 
 namespace vl {
@@ -189,7 +192,24 @@ void Blind::set_blind(const Value &blind, bool reset, bool silent) {
         // config.h_popup_config: the blind's hover popup (TODO(run): its UI)
     }
 
-    // TODO(run): The Eye, The Mouth, The Fish, The Water, The Needle, The Manacle, Amber Acorn
+    if (name == "The Eye" && !reset) {
+        hands = new_table();
+        for (const char *h : {"Flush Five", "Flush House", "Five of a Kind", "Straight Flush", "Four of a Kind", "Full House", "Flush", "Straight",
+                              "Three of a Kind", "Two Pair", "Pair", "High Card"})
+            hands->set(h, false);
+    }
+    if (name == "The Mouth" && !reset) only_hand = Value(false);
+    if (name == "The Fish" && !reset) prepped = false;
+    if (name == "The Water" && !reset) {
+        discards_sub = fld(G.GAME->get(K("current_round")), "discards_left");
+        ease_discard(-discards_sub.num());
+    }
+    if (name == "The Needle" && !reset) {
+        hands_sub = Value(fld(G.GAME->get(K("round_resets")), "hands").num() - 1);
+        ease_hands_played(-hands_sub.num());
+    }
+    if (name == "The Manacle" && !reset) G.hand->change_size(-1);
+    // TODO(run): Amber Acorn (flips and shuffles the jokers)
 
     // add new debuffs
     for (auto &c : std::vector<CardRef>(G.playing_cards)) debuff_card(c.get());
@@ -387,6 +407,190 @@ void Blind::debuff_card(Card *card, bool) {
 void Blind::remove() {
     G.I.CARD.remove(this);
     Moveable::remove();
+}
+
+void Blind::defeat(bool silent) {
+    const double dissolve_time = 1.3;
+    double extra_time = 0;
+    dissolve = 0;
+    dissolve_colours = A({G.colour("BLACK"), G.colour("RED")});
+    juice_up_blind();
+    Particles *parts = new Particles(0, 0, 0, 0,
+                                     vl::T({{"timer_type", "TOTAL"},
+                                            {"timer", 0.01 * dissolve_time},
+                                            {"scale", 0.1},
+                                            {"speed", 1.5},
+                                            {"lifespan", 0.7 * dissolve_time},
+                                            {"attach", Value((Object *)this)},
+                                            {"colours", Value(dissolve_colours)},
+                                            {"fill", true}}));
+    children.set("particles", parts);
+    if (UIBox *hb = hud_blind())
+        if (auto *t = dynamic_cast<DynaText *>(hb->get_UIE_by_ID("HUD_blind_name")->config->get(K("object")).obj())) t->pop_out(2);
+    Ref<Blind> self(this);
+    EventConfig e1 = ev_after(0.5 * dissolve_time, [self] {
+        if (auto *p = dynamic_cast<Particles *>(self->children.get("particles"))) p->max = 0;
+        return true;
+    });
+    e1.blockable = false;
+    G.E_MANAGER->add_event(e1);
+    if (!silent) {
+        const int pings = sound_pings;
+        for (int i = 1; i <= std::min(pings, 7); i++) {
+            extra_time += (0.4 + 0.15 * i) * dissolve_time;
+            EventConfig e = ev_after((0.15 - 0.01 * pings) * i * dissolve_time, [i, pings] {
+                play_sound("cancel", (float)(0.8 - 0.05 * i), 1.7f);
+                if (i == std::min(pings + 1, 6)) play_sound("whoosh2", 0.7f, 0.42f);
+                return true;
+            });
+            e.blockable = false;
+            G.E_MANAGER->add_event(e);
+        }
+    }
+    EventConfig ease;
+    ease.trigger = Trigger::Ease;
+    ease.blockable = false;
+    ease.ref = ValueRef::of(&dissolve, this);
+    ease.ease_to = 1;
+    ease.delay = 0.7 * dissolve_time;
+    G.E_MANAGER->add_event(ease);
+    EventConfig e2 = ev_after(0.8 * dissolve_time, [] {
+        if (UIBox *hb = hud_blind()) hb->alignment.offset.y = -10;
+        return true;
+    });
+    e2.blockable = false;
+    G.E_MANAGER->add_event(e2);
+    EventConfig e3 = ev_after(0.95 * dissolve_time, [self] {
+        self->dissolve = 0;
+        self->set_blind(Value(), false, true);
+        return true;
+    });
+    e3.blockable = false;
+    G.E_MANAGER->add_event(e3);
+    for (auto &v : G.jokers->cards)
+        if (v->facing == "back") v->flip();
+    if (name == "The Manacle" && !disabled) G.hand->change_size(1);
+}
+
+bool Blind::press_play() {
+    if (disabled) return false;
+    if (name == "The Hook") {
+        G.E_MANAGER->add_event(ev_immediate([] {
+            bool any_selected = false;
+            std::vector<Card *> cards;
+            for (auto &c : G.hand->cards) cards.push_back(c.get());
+            for (int i = 1; i <= 2; i++) {
+                if ((int)G.hand->cards.size() >= i) {
+                    TableRef t = new_table();
+                    for (Card *c : cards) t->push(Value((Object *)c));
+                    double seed = pseudoseed("hook");
+                    Value key;
+                    Card *sel = pseudorandom_element(Value(t), &seed, &key).as<Card>();
+                    G.hand->add_to_highlighted(sel, true);
+                    cards.erase(cards.begin() + ((int)key.num() - 1));
+                    any_selected = true;
+                    play_sound("card1", 1);
+                }
+            }
+            if (any_selected) discard_cards_from_highlighted(true);
+            return true;
+        }));
+        triggered = Value(true);
+        delay(0.7);
+        return true;
+    }
+    if (name == "Crimson Heart" && !G.jokers->cards.empty()) {
+        triggered = Value(true);
+        prepped = true;
+    }
+    if (name == "The Fish") prepped = true;
+    if (name == "The Tooth") {
+        G.E_MANAGER->add_event(ev_after(0.2, [] {
+            for (size_t i = 0; i < G.play->cards.size(); i++) {
+                G.E_MANAGER->add_event(ev_immediate([i] {
+                    if (i < G.play->cards.size()) G.play->cards[i]->juice_up_card();
+                    return true;
+                }));
+                ease_dollars(-1);
+                delay(0.23);
+            }
+            return true;
+        }));
+        triggered = Value(true);
+        return true;
+    }
+    return false;
+}
+
+void Blind::modify_hand(const std::vector<Card *> &, const TableRef &, const std::string &, double &mult, double &hand_chips, bool &modded) {
+    modded = false;
+    if (disabled) return;
+    if (name == "The Flint") {
+        triggered = Value(true);
+        mult = std::max(std::floor(mult * 0.5 + 0.5), 1.0);
+        hand_chips = std::max(std::floor(hand_chips * 0.5 + 0.5), 0.0);
+        modded = true;
+    }
+}
+
+bool Blind::debuff_hand(const std::vector<Card *> &cards, const TableRef &hand, const std::string &handname, bool check) {
+    if (disabled) return false;
+    if (debuff) {
+        triggered = Value(false);
+        Value dh = debuff->get(K("hand"));
+        if (dh.truthy()) {
+            bool any = false;
+            if (Table *t = hand->get(dh).table()) t->each([&](const Value &, const Value &) { any = true; });
+            if (any) {
+                triggered = Value(true);
+                return true;
+            }
+        }
+        Value ge = debuff->get(K("h_size_ge")), le = debuff->get(K("h_size_le"));
+        if (ge.truthy() && (double)cards.size() < ge.num()) {
+            triggered = Value(true);
+            return true;
+        }
+        if (le.truthy() && (double)cards.size() > le.num()) {
+            triggered = Value(true);
+            return true;
+        }
+        if (name == "The Eye") {
+            if (hands && hands->get(Value(handname)).truthy()) {
+                triggered = Value(true);
+                return true;
+            }
+            if (!check && hands) hands->set(Value(handname), true);
+        }
+        if (name == "The Mouth") {
+            if (only_hand.truthy() && !only_hand.equals(handname)) {
+                triggered = Value(true);
+                return true;
+            }
+            if (!check) only_hand = Value(handname);
+        }
+    }
+    if (name == "The Arm") {
+        triggered = Value(false);
+        if (fld(G.GAME->get(K("hands")).get(Value(handname)), "level").num() > 1) {
+            triggered = Value(true);
+            if (!check) {
+                level_up_hand(sprite(), handname, false, -1);
+                wiggle();
+            }
+        }
+    }
+    if (name == "The Ox") {
+        triggered = Value(false);
+        if (fld(G.GAME->get(K("current_round")), "most_played_poker_hand").equals(handname)) {
+            triggered = Value(true);
+            if (!check) {
+                ease_dollars(-G.GAME->get(K("dollars")).num(), true);
+                wiggle();
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace vl

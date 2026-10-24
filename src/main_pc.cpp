@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "game/blind.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "game/state_events.h"
@@ -56,13 +57,24 @@ int main(int argc, char **argv) {
     // VL_TUTORIAL_DONE=1: the profile's tutorial counts as complete; VL_RUN="frame:seed" starts a
     // seeded run (G.FUNCS.start_run(nil, {seed = seed, stake = 1})) at that frame
     if (std::getenv("VL_TUTORIAL_DONE")) vl::G.SETTINGS->set("tutorial_complete", true);
+    if (const char *gs = std::getenv("VL_GAMESPEED")) vl::G.SETTINGS->set("GAMESPEED", std::atof(gs));
     int run_frame = -1;
     std::string run_seed;
     if (const char *r = std::getenv("VL_RUN")) {
         run_frame = std::atoi(r);
         if (const char *c = std::strchr(r, ':')) run_seed = c + 1;
     }
+    // VL_SET_CHIPS="frame:chips": G.GAME.blind.chips = chips at that frame (test hook)
+    int chips_frame = -1;
+    double chips_val = 0;
+    if (const char *c = std::getenv("VL_SET_CHIPS"))
+        if (std::strchr(c, ':')) {
+            chips_frame = std::atoi(c);
+            chips_val = std::atof(std::strchr(c, ':') + 1);
+        }
     for (int f = 1; f <= last; f++) {
+        if (f == chips_frame)
+            if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = chips_val;
         if (f == run_frame) vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", 1}}));
         // VL_GPU_EST=2 lists the large draws of each captured frame
         vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);

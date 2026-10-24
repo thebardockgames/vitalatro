@@ -508,4 +508,19 @@ TableRef create_UIBox_buttons() {
                         .table());
 }
 
+TableRef create_UIBox_round_evaluation() {
+    const double width = G.hand->T->w - 2;
+    auto row = [](TableRef cfg, TableRef nodes) { return Value(vl::T({{"n", (double)UIT_R}, {"config", Value(cfg)}, {"nodes", Value(nodes)}})); };
+    return vl::T({{"n", (double)UIT_ROOT},
+                  {"config", Value(vl::T({{"align", "tm"}, {"colour", G.colour("CLEAR")}}))},
+                  {"nodes", Value(A({Value(UIBox_dyn_container(
+                                A({row(vl::T({{"align", "tm"}, {"minw", width}, {"minh", 3}, {"padding", 0.1}, {"r", 0.1}, {"colour", G.colour("BLACK")}, {"emboss", 0.05}}),
+                                       A({row(vl::T({{"align", "cm"}, {"minw", width}, {"minh", 1.4}}), A({})),
+                                          row(vl::T({{"align", "cm"}, {"minw", width}, {"id", "base_round_eval"}}), A({})),
+                                          row(vl::T({{"align", "cm"}, {"minw", width}, {"id", "bonus_round_eval"}}), A({}))})),
+                                   row(vl::T({{"align", "cm"}, {"minh", 0.05}}), A({})),
+                                   row(vl::T({{"align", "cm"}, {"minw", width}, {"id", "eval_bottom"}}), A({}))}),
+                                false))}))}});
+}
+
 }  // namespace vl

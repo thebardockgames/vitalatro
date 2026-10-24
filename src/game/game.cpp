@@ -649,7 +649,7 @@ void Globals::delete_run() {
             objs[i]->remove();
         }
         for (NodeRef *n : {&buttons, &deck_preview, &shop, &blind_select, &booster_pack, &MAIN_MENU_UI, &GAME_OVER_UI,
-                           &collection_alert, &HUD, &HUD_blind})
+                           &collection_alert, &HUD, &HUD_blind, &round_eval, &blind_prompt_box})
             if (*n) {
                 (*n)->remove();
                 *n = nullptr;
@@ -1183,7 +1183,7 @@ void Globals::update_selecting_hand(double) {
         buttons = new UIBox(create_UIBox_buttons(), vl::T({{"align", "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0.3}}))}, {"major", Value((Object *)hand.get())},
                                                           {"bond", "Weak"}}));
     if (buttons && !buttons->states.visible && !deck_preview) buttons->states.visible = true;
-    // TODO(run): end_round() when the hand, deck and play are empty
+    if (hand->cards.empty() && deck->cards.empty() && play->cards.empty()) end_round();
     if (shop) {
         shop->remove();
         shop = nullptr;
@@ -1193,6 +1193,102 @@ void Globals::update_selecting_hand(double) {
         save_run();
         CONTROLLER->recall_cardarea_focus("hand");
     }
+}
+
+namespace {
+void remove_buttons_and_shop() {
+    if (G.buttons) {
+        G.buttons->remove();
+        G.buttons = nullptr;
+    }
+    if (G.shop) {
+        G.shop->remove();
+        G.shop = nullptr;
+    }
+}
+}  // namespace
+
+void Globals::update_hand_played(double) {
+    remove_buttons_and_shop();
+    if (STATE_COMPLETE) return;
+    STATE_COMPLETE = true;
+    E_MANAGER->add_event(ev_immediate([] {
+        Value cr = G.GAME->get(K("current_round"));
+        if (G.GAME->get(K("chips")).num() - G.GAME->get(K("blind")).as<Blind>()->chips >= 0 || fld(cr, "hands_left").num() < 1)
+            G.STATE = NEW_ROUND;
+        else
+            G.STATE = DRAW_TO_HAND;
+        G.STATE_COMPLETE = false;
+        return true;
+    }));
+}
+
+void Globals::update_new_round(double) {
+    remove_buttons_and_shop();
+    if (STATE_COMPLETE) return;
+    STATE_COMPLETE = true;
+    end_round();
+}
+
+void Globals::update_round_eval(double) {
+    remove_buttons_and_shop();
+    if (STATE_COMPLETE) return;
+    stop_use();
+    STATE_COMPLETE = true;
+    E_MANAGER->add_event(ev_immediate([] {
+        G.GAME->set("facing_blind", Value());
+        save_run();
+        ease_background_colour_blind(ROUND_EVAL);
+        G.round_eval_divider_added = false;
+        UIBox *re = new UIBox(create_UIBox_round_evaluation(), vl::T({{"align", "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", G.ROOM->T->y + 19}}))},
+                                                                      {"major", Value((Object *)G.hand.get())}, {"bond", "Weak"}}));
+        G.round_eval = re;
+        re->alignment.offset.x = 0;
+        G.E_MANAGER->add_event(ev_immediate([] {
+            UIBox *re = dynamic_cast<UIBox *>(G.round_eval.get());
+            if (!re) return true;
+            if (re->alignment.offset.y != -7.8f) {
+                re->alignment.offset.y = -7.8f;
+            } else if (std::fabs(re->T->y - re->VT.y) < 3) {
+                G.ROOM_jiggle += 3;
+                play_sound("cardFan2");
+                delay(0.1);
+                evaluate_round();
+                return true;
+            }
+            return false;
+        }));
+        return true;
+    }));
+}
+
+// TODO(run): the shop (hito 4). Until then, leaving the round goes straight back to the blind
+// choice, as G.FUNCS.toggle_shop does when the shop closes.
+void Globals::update_shop(double) {
+    if (STATE_COMPLETE) return;
+    STATE_COMPLETE = true;
+    stop_use();
+    ease_background_colour_blind(SHOP);
+    E_MANAGER->add_event(ev_after(0.5, [] {
+        G.STATE_COMPLETE = false;
+        G.STATE = BLIND_SELECT;
+        return true;
+    }));
+}
+
+// TODO(run): create_UIBox_game_over (hito 5). For now: the sounds, then back to the main menu.
+void Globals::update_game_over(double) {
+    if (STATE_COMPLETE) return;
+    play_sound("negative", 0.5f, 0.7f);
+    play_sound("whoosh2", 0.9f, 0.7f);
+    ROOM_jiggle += 3;
+    attention_text(vl::T({{"scale", 1.4}, {"text", localize("ph_game_over")}, {"hold", 3}, {"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -2.7}}))},
+                          {"major", Value((Object *)play.get())}}));
+    E_MANAGER->add_event(ev_after(4, [] {
+        G.FUNCS["go_to_menu"](nullptr);
+        return true;
+    }));
+    STATE_COMPLETE = true;
 }
 
 void Globals::main_menu(std::string_view change_context) {
@@ -1444,7 +1540,12 @@ void Globals::update(double dt) {
             update_selecting_hand(dt);
         }
     }
-    // TODO(run): shop, play tarot, hand played, new round, round eval, packs, game over
+    // TODO(run): play tarot, packs
+    if (STATE == SHOP) update_shop(dt);
+    if (STATE == HAND_PLAYED) update_hand_played(dt);
+    if (STATE == NEW_ROUND) update_new_round(dt);
+    if (STATE == ROUND_EVAL) update_round_eval(dt);
+    if (STATE == GAME_OVER) update_game_over(dt);
     if (STATE == DRAW_TO_HAND) update_draw_to_hand(dt);
     if (STATE == BLIND_SELECT) update_blind_select(dt);
 

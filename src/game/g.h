@@ -198,7 +198,9 @@ struct Globals {
     std::vector<std::string> sticker_map;
     Ref<Sprite> SPLASH_BACK, SPLASH_FRONT, SPLASH_LOGO;
     NodeRef MAIN_MENU_UI, buttons, deck_preview, shop, blind_select, booster_pack, GAME_OVER_UI, collection_alert, HUD,
-        HUD_blind, debug_tools, online_leaderboard, achievement_notification, boss_warning_text, blind_prompt_box;
+        HUD_blind, debug_tools, online_leaderboard, achievement_notification, boss_warning_text, blind_prompt_box, round_eval;
+    bool round_eval_divider_added = false;  // G.round_eval.divider_added
+    bool boss_throw_hand = false;           // G.boss_throw_hand
     std::map<std::string, NodeRef> blind_select_opts;  // G.blind_select_opts.small/big/boss
     std::vector<NodeRef> HUD_tags;
     int sort_id = 0;
@@ -257,6 +259,11 @@ struct Globals {
     void update_blind_select(double dt);
     void update_draw_to_hand(double dt);
     void update_selecting_hand(double dt);
+    void update_hand_played(double dt);
+    void update_new_round(double dt);
+    void update_round_eval(double dt);
+    void update_shop(double dt);
+    void update_game_over(double dt);
     bool vl_debug_table = false;  // boot into debug_table() (hold R at boot; VL_DEBUG_TABLE=1 on PC)
     void prep_stage(int new_stage, int new_state, bool new_game_obj);
     TableRef init_game_object();

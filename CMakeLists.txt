@@ -45,6 +45,7 @@ set(COMMON_SRC
   src/game/save_manager.cpp
   src/game/sound.cpp
   src/game/state_events.cpp
+  src/game/scoring.cpp
   src/game/ui_definitions.cpp
   src/game/ui_run.cpp
   src/m0/m0.cpp

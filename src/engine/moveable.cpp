@@ -6,6 +6,7 @@
 #include "engine/node.h"
 #include "engine/controller.h"
 #include "engine/random.h"
+#include "engine/ui.h"
 #include "game/g.h"
 #include "gfx/gfx.h"
 
@@ -340,8 +341,15 @@ void Moveable::remove() {
     G.MOVEABLES.remove(this);
     G.I.MOVEABLE.remove(this);
     Node::remove();
-    // break reference cycles the Lua GC would have collected
-    role.major = nullptr;
+    // break the parent <-> child reference cycles the Lua GC would have collected. Other majors are
+    // kept: a removed major is still moved by its minors (Moveable:move), e.g. the cash out button
+    // keeps following G.round_eval down off screen after it is removed.
+    // Only free-standing UIBoxes keep theirs (their majors do not reference them back).
+    if (role.major) {
+        bool owned = !dynamic_cast<UIBox *>(this) || parent == role.major.get();
+        role.major->children.each([&](Str *, Node *c) { owned |= c == this; });
+        if (owned) role.major = nullptr;
+    }
 }
 
 // ------------------------------------------------------------------ misc helpers
