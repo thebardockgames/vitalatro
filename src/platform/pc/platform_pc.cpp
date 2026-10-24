@@ -12,6 +12,11 @@
 #include <thread>
 #include <vector>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include "core/time.h"
 #include "platform/platform.h"
 
@@ -73,12 +78,20 @@ void make_save_dir(const char *name) {
     std::filesystem::create_directories(g_save + name, ec);
 }
 
+namespace {
+void (*g_log_tap)(const char *) = nullptr;
+}
+
+void set_log_tap(void (*tap)(const char *line)) { g_log_tap = tap; }
+
 void log(const char *fmt, ...) {
+    char buf[1024];
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    fprintf(stderr, "%s\n", buf);
+    if (auto tap = g_log_tap) tap(buf);
 }
 
 void fatal(const char *fmt, ...) {
@@ -188,6 +201,48 @@ bool Semaphore::try_wait() {
 }
 
 void free_memory_mb(int &user, int &cdram) { user = cdram = -1; }
+
+// ---- dev server
+bool net_init() { return true; }
+std::string local_ip() { return "127.0.0.1"; }
+
+int tcp_listen(int port) {
+    int s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return -1;
+    int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (::bind(s, (sockaddr *)&a, sizeof a) < 0 || ::listen(s, 2) < 0) {
+        ::close(s);
+        return -1;
+    }
+    return s;
+}
+int tcp_accept(int listener) { return ::accept(listener, nullptr, nullptr); }
+int tcp_recv(int s, void *buf, int n) { return (int)::recv(s, buf, (size_t)n, 0); }
+bool tcp_send_all(int s, const void *buf, size_t n) {
+    const char *p = (const char *)buf;
+    while (n > 0) {
+        ssize_t w = ::send(s, p, n, MSG_NOSIGNAL);
+        if (w <= 0) return false;
+        p += w;
+        n -= (size_t)w;
+    }
+    return true;
+}
+void tcp_close(int s) { ::close(s); }
+void keep_awake() {}
+bool read_any(const char *path, std::string &out) { return read_whole(path, out); }
+bool write_any(const char *path, const std::string &data) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return false;
+    f << data;
+    return (bool)f;
+}
+void restart_app() { fatal("restart_app: not on PC"); }
 
 }  // namespace platform
 }  // namespace vl

@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "core/time.h"
+#include "dev/devserver.h"
 #include "engine/font.h"
 #include "game/g.h"
 #include "game/input.h"
@@ -102,14 +103,23 @@ void bench_frame(double dt, uint32_t buttons) {
     }
     if (bench_hold > 1.0) {
         bench_hold = 0;
-        G.vl_bench = -1;  // mode 0 (normal) first; -1 marks "running"
-        bench_t = 1e-9;
-        // without vsync, a GPU-bound frame takes the GPU's real time instead of a multiple of 16.7 ms
-        gfx::set_vsync(false);
-        platform::log("bench: start (vsync off)");
+        start_gpu_bench();
     }
 }
 
+}  // namespace
+
+void start_gpu_bench() {
+    G.vl_bench = -1;  // mode 0 (normal) first; -1 marks "running"
+    bench_t = 1e-9;
+    // without vsync, a GPU-bound frame takes the GPU's real time instead of a multiple of 16.7 ms
+    gfx::set_vsync(false);
+    platform::log("bench: start (vsync off)");
+}
+
+bool gpu_bench_running() { return G.vl_bench < 0 || bench_t > 0; }
+
+namespace {
 // Per menu (each overlay, e.g. a collection page): its opening (first 0.7 s, cards materializing)
 // and the rest, logged when it closes, with the estimate of the slowest steady frame.
 struct PageStats {
@@ -204,6 +214,7 @@ double game_frame(double dt) {
     double ti = time_now();
     platform::Input in;
     platform::poll_input(in);
+    dev::frame_begin(in);
     input_frame(in);
     double input_now = (time_now() - ti) * 1000;
     dt_smooth = std::min(0.8 * dt_smooth + 0.2 * dt, 0.1);
@@ -226,6 +237,7 @@ double game_frame(double dt) {
     gfx::end_frame();
     last_submit = (time_now() - t3) * 1000;
     last_input = input_now;
+    dev::frame_end({dt, input_now, upd_now, draw_now, last_submit});
     return dt_smooth;
 }
 

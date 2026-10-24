@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Build the runtime data directory from the user's own copy of Balatro.
 
-    build_assets.py <balatro_dir> <out_dir> <pc|vita>
+    build_assets.py <balatro_dir> <out_dir> <pc|vita> [--shaders-only]
+
+--shaders-only rebuilds just the shaders (and, for the Vita, recompiles only the .cg files that
+changed): the quick path before pushing them to the dev build with `tools/vitactl.py shader --changed`.
 
 Nothing from the game is stored in this repository: textures, fonts and shaders are taken from
 <balatro_dir> at build time. For the Vita, the GLSL shaders are converted to Cg and compiled to
@@ -379,17 +382,24 @@ def build_vita_shaders(src, out):
     if not cgc.exists():
         sys.exit(f'psp2cgc not found at {cgc}')
     cg_dir = out.parent.parent / 'shaders_cg'  # outside the asset dir (not packaged)
+    previous = {f.name: f.read_text(encoding='utf-8') for f in cg_dir.glob('*.cg')} if cg_dir.exists() else {}
     shutil.rmtree(cg_dir, ignore_errors=True)
     sys.argv = ['shader_to_cg', str(src), str(cg_dir)]
     shader_to_cg.main()
     out.mkdir(parents=True, exist_ok=True)
+    compiled = 0
     for cg in sorted(cg_dir.glob('*.cg')):
         profile = 'sce_vp_psp2' if cg.stem.endswith('_v') else 'sce_fp_psp2'
         gxp = out / (cg.stem + '.gxp')
+        if gxp.exists() and previous.get(cg.name) == cg.read_text(encoding='utf-8'):
+            continue  # unchanged since its last compile
+        compiled += 1
         r = subprocess.run([str(cgc), '-profile', profile, '-O4', str(cg), '-o', str(gxp)],
                            capture_output=True, text=True)
         if r.returncode != 0 or not gxp.exists():
+            gxp.unlink(missing_ok=True)
             sys.exit(f'{cg.name}: {r.stdout}{r.stderr}')
+    print(f'{compiled} shader(s) compiled')
 
 
 def wsl_path(p):
@@ -405,6 +415,7 @@ def run_wsl(args):
 
 def main():
     game, out, target = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    argv = list(sys.argv)
     res = game / 'resources'
     copy_tree(res / 'textures' / '1x', out / 'textures' / '1x', '**/*.png')
     copy_tree(res / 'sounds', out / 'sounds', '*.ogg')
@@ -416,6 +427,8 @@ def main():
         build_vita_shaders(shaders, out / 'shaders')
     else:
         copy_tree(shaders, out / 'shaders', '*.fs')
+    if '--shaders-only' in argv[4:]:
+        return
     # game data tables (prototypes, localization...) and fonts rasterized like LOVE does
     (out / 'data').mkdir(parents=True, exist_ok=True)
     run_wsl(['luajit', wsl_path(HERE / 'extract_data.lua'), wsl_path(game), wsl_path(out / 'data')])

@@ -1,5 +1,7 @@
 #pragma once
 // Interface between the API-agnostic recorder (gfx.cpp) and a GPU backend (GXM or GL).
+#include <string>
+#include <utility>
 #include <vector>
 #include "gfx/gfx.h"
 
@@ -75,5 +77,8 @@ void backend_destroy_texture(Texture *t);
 void backend_create_canvas(Canvas *c);
 void backend_submit(const FrameData &f);  // render everything, then present
 void backend_read_screen(std::vector<uint8_t> &out);  // last presented frame, RGBA top-down
+// Dev server: replaces compiled shader files (by name, e.g. "flame_f") and rebuilds every program.
+// Returns "" or what went wrong (nothing is replaced then).
+std::string backend_reload_shaders(const std::vector<std::pair<std::string, std::string>> &files);
 
 }  // namespace vl::gfx

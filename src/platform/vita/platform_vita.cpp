@@ -4,11 +4,17 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/appmgr.h>
+#include <psp2/net/net.h>
+#include <psp2/net/netctl.h>
+#include <psp2/sysmodule.h>
 #include <psp2/power.h>
 #include <psp2/touch.h>
 
 #include <cstdarg>
 #include <cstdio>
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -129,12 +135,19 @@ void log_start() {
 }
 }  // namespace
 
+namespace {
+void (*g_log_tap)(const char *) = nullptr;
+}
+
+void set_log_tap(void (*tap)(const char *line)) { g_log_tap = tap; }
+
 void log(const char *fmt, ...) {
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    if (auto tap = g_log_tap) tap(buf);
     if (log_sema < 0) {
         log_write(std::string(buf) + "\n");
         return;
@@ -228,6 +241,84 @@ Semaphore::~Semaphore() { sceKernelDeleteSema((SceUID)(intptr_t)h_); }
 void Semaphore::post() { sceKernelSignalSema((SceUID)(intptr_t)h_, 1); }
 void Semaphore::wait() { sceKernelWaitSema((SceUID)(intptr_t)h_, 1, nullptr); }
 bool Semaphore::try_wait() { return sceKernelPollSema((SceUID)(intptr_t)h_, 1) == 0; }
+
+// ---- dev server
+bool net_init() {
+    // (an already initialized module answers with an error code: logged, not fatal; tcp_listen
+    // is the real test)
+    if (sceSysmoduleLoadModule(SCE_SYSMODULE_NET) < 0) return false;
+    static void *net_mem = nullptr;
+    if (!net_mem) {
+        const int size = 1024 * 1024;
+        net_mem = std::malloc(size);
+        SceNetInitParam p{net_mem, size, 0};
+        int r = sceNetInit(&p);
+        if (r < 0) log("net: sceNetInit 0x%08x", (unsigned)r);
+    }
+    int r = sceNetCtlInit();
+    if (r < 0) log("net: sceNetCtlInit 0x%08x", (unsigned)r);
+    return true;
+}
+
+std::string local_ip() {
+    SceNetCtlInfo info{};
+    if (sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_IP_ADDRESS, &info) < 0) return "";
+    return info.ip_address;
+}
+
+int tcp_listen(int port) {
+    int s = sceNetSocket("vl_dev", SCE_NET_AF_INET, SCE_NET_SOCK_STREAM, 0);
+    if (s < 0) return -1;
+    int one = 1;
+    sceNetSetsockopt(s, SCE_NET_SOL_SOCKET, SCE_NET_SO_REUSEADDR, &one, sizeof one);
+    SceNetSockaddrIn a{};
+    a.sin_len = sizeof a;
+    a.sin_family = SCE_NET_AF_INET;
+    a.sin_port = sceNetHtons((unsigned short)port);
+    a.sin_addr.s_addr = SCE_NET_INADDR_ANY;
+    if (sceNetBind(s, (SceNetSockaddr *)&a, sizeof a) < 0 || sceNetListen(s, 2) < 0) {
+        sceNetSocketClose(s);
+        return -1;
+    }
+    return s;
+}
+int tcp_accept(int listener) {
+    SceNetSockaddrIn a{};
+    unsigned int len = sizeof a;
+    int r = sceNetAccept(listener, (SceNetSockaddr *)&a, &len);
+    return r < 0 ? -1 : r;
+}
+int tcp_recv(int s, void *buf, int n) { return sceNetRecv(s, buf, (unsigned)n, 0); }
+bool tcp_send_all(int s, const void *buf, size_t n) {
+    const char *p = (const char *)buf;
+    while (n > 0) {
+        int w = sceNetSend(s, p, (unsigned)std::min<size_t>(n, 64 * 1024), 0);
+        if (w <= 0) return false;
+        p += w;
+        n -= (size_t)w;
+    }
+    return true;
+}
+void tcp_close(int s) { sceNetSocketClose(s); }
+void keep_awake() { sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND); }
+bool read_any(const char *path, std::string &out) { return read_whole(path, out); }
+bool write_any(const char *path, const std::string &data) {
+    SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+    if (fd < 0) return false;
+    size_t done = 0;
+    while (done < data.size()) {
+        int w = sceIoWrite(fd, data.data() + done, (SceSize)(data.size() - done));
+        if (w <= 0) break;
+        done += (size_t)w;
+    }
+    sceIoClose(fd);
+    return done == data.size();
+}
+void restart_app() {
+    sceAppMgrLoadExec("app0:eboot.bin", nullptr, nullptr);
+    sceKernelExitProcess(0);
+    for (;;) {}
+}
 
 void free_memory_mb(int &user, int &cdram) {
     SceKernelFreeMemorySizeInfo info{};

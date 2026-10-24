@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "core/time.h"
+#include "dev/devserver.h"
 #include "game/blind.h"
 #include "game/g.h"
 #include "game/run.h"
@@ -53,6 +55,7 @@ int main(int argc, char **argv) {
     for (int i = 3; i < argc; i++) frames.insert(std::atoi(argv[i]));
     int last = frames.empty() ? 600 : *frames.rbegin();
     vl::game_boot();
+    if (std::getenv("VL_DEV")) vl::dev::start();  // the dev server, to test tools/vitactl.py locally
     const char *ge = std::getenv("VL_GPU_EST");
     // VL_TUTORIAL_DONE=1: the profile's tutorial counts as complete; VL_RUN="frame:seed" starts a
     // seeded run (G.FUNCS.start_run(nil, {seed = seed, stake = 1})) at that frame
@@ -72,7 +75,15 @@ int main(int argc, char **argv) {
             chips_frame = std::atoi(c);
             chips_val = std::atof(std::strchr(c, ':') + 1);
         }
+    // with the dev server the runner keeps going in real time (60 fps) until it is killed
+    const bool dev = std::getenv("VL_DEV") != nullptr;
+    if (dev) last = 1 << 30;
+    double next_frame = vl::time_now();
     for (int f = 1; f <= last; f++) {
+        if (dev) {
+            next_frame += 1.0 / 60;
+            vl::time_sleep(next_frame - vl::time_now());
+        }
         if (f == chips_frame)
             if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = chips_val;
         if (f == run_frame) vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", 1}}));

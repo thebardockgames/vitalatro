@@ -19,6 +19,7 @@ set(COMMON_SRC
   src/audio/mixer.cpp
   src/core/stb_impl.cpp
   src/core/value.cpp
+  src/dev/devserver.cpp
   src/gfx/gfx.cpp
   src/gfx/shaders.cpp
   src/engine/controller.cpp
@@ -53,8 +54,15 @@ set(COMMON_SRC
 
 if(VL_TARGET STREQUAL "vita")
   include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
-  set(VITA_APP_NAME "Vitalatro")
-  set(VITA_TITLEID  "VLTR00001")
+  # VL_DEV: the dev build (dev server on port 7777, tools/vitactl.py), installed next to the game
+  option(VL_DEV "dev server build" OFF)
+  if(VL_DEV)
+    set(VITA_APP_NAME "Vitalatro Dev")
+    set(VITA_TITLEID  "VLTR00002")
+  else()
+    set(VITA_APP_NAME "Vitalatro")
+    set(VITA_TITLEID  "VLTR00001")
+  endif()
   set(VITA_VERSION  "00.01")
 
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -mcpu=cortex-a9 -mfpu=neon -fno-exceptions -Wall")
@@ -68,9 +76,13 @@ if(VL_TARGET STREQUAL "vita")
   target_include_directories(vitalatro PRIVATE src third_party)
   target_link_options(vitalatro PRIVATE -Wl,-T,${CMAKE_SOURCE_DIR}/src/platform/vita/vitalatro.ld)
   target_compile_definitions(vitalatro PRIVATE VL_VITA=1)
+  if(VL_DEV)
+    target_compile_definitions(vitalatro PRIVATE VL_DEV=1)
+  endif()
   target_link_libraries(vitalatro
     SceGxm_stub SceDisplay_stub SceCtrl_stub SceTouch_stub SceAudio_stub
     ScePower_stub SceSysmodule_stub SceAppUtil_stub SceAppMgr_stub SceCommonDialog_stub
+    SceNet_stub SceNetCtl_stub
     pthread m)
 
   vita_create_self(eboot.bin vitalatro UNSAFE)

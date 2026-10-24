@@ -1,4 +1,5 @@
 #include "core/time.h"
+#include "dev/devserver.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "gfx/gfx.h"
@@ -26,6 +27,9 @@ int main() {
     // holding R opens the run-like debug table instead of the menus (Globals::debug_table)
     if (in.buttons & vl::platform::BTN_R) vl::G.vl_debug_table = true;
     vl::game_boot();
+#ifdef VL_DEV
+    vl::dev::start();
+#endif
     double last = vl::time_now();
     for (;;) {
         double now = vl::time_now();

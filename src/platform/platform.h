@@ -60,4 +60,22 @@ class Semaphore {  // counting
 // Free memory in MB (user RAM, CDRAM); -1 when unknown.
 void free_memory_mb(int &user, int &cdram);
 
+// ---- the dev server (VL_DEV builds): a TCP listener on the local network
+bool net_init();               // false when there is no network
+std::string local_ip();        // "" when unknown
+int tcp_listen(int port);      // a listening socket, -1 on failure
+int tcp_accept(int listener);  // blocks; -1 on failure
+int tcp_recv(int s, void *buf, int n);  // bytes read, <= 0 when the peer closed
+bool tcp_send_all(int s, const void *buf, size_t n);
+void tcp_close(int s);
+// Every log line is also passed to `tap`, on the thread that logs it; nullptr removes it.
+void set_log_tap(void (*tap)(const char *line));
+// Keeps the console from dimming the screen / suspending while nobody touches it.
+void keep_awake();
+// Reads / writes any file by its full path (ux0:..., or a host path on PC).
+bool read_any(const char *path, std::string &out);
+bool write_any(const char *path, const std::string &data);
+// Relaunches the app from scratch.
+[[noreturn]] void restart_app();
+
 }  // namespace vl::platform

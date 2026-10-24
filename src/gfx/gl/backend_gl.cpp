@@ -454,4 +454,8 @@ void backend_read_screen(std::vector<uint8_t> &out) {
     // rows were rendered y-flipped (row 0 = top) so memory order is already top-down
 }
 
+std::string backend_reload_shaders(const std::vector<std::pair<std::string, std::string>> &) {
+    return "shader reload is only implemented on the Vita";
+}
+
 }  // namespace vl::gfx

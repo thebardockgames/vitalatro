@@ -111,6 +111,7 @@ struct ProgramParams {
 };
 
 struct Program {
+    const SceGxmProgram *vblob, *fblob;  // owned (malloc)
     SceGxmShaderPatcherId vid, fid;
     SceGxmVertexProgram *vp;
     SceGxmFragmentProgram *fp;
@@ -168,10 +169,15 @@ Target &target_for(int w, int h) {
     return g_targets[key] = t;
 }
 
+// dev server: compiled shader files pushed over the network, by name
+std::map<std::string, std::string> g_shader_override;
+
 const SceGxmProgram *load_gxp(const char *name, SceGxmShaderPatcherId *id) {
     std::string data;
     std::string path = std::string("shaders/") + name + ".gxp";
-    if (!platform::read_file(path.c_str(), data)) {
+    auto ov = g_shader_override.find(name);
+    if (ov != g_shader_override.end()) data = ov->second;
+    else if (!platform::read_file(path.c_str(), data)) {
         platform::fatal("missing shader %s", path.c_str());
     }
     // the patcher keeps a reference: the blob must outlive it
@@ -187,6 +193,8 @@ void build_program(Program &P, const char *vname, const char *fname, ShaderId id
                    bool f16 = false) {
     const SceGxmProgram *vg = load_gxp(vname, &P.vid);
     const SceGxmProgram *fg = load_gxp(fname, &P.fid);
+    P.vblob = vg;
+    P.fblob = fg;
 
     const SceGxmProgramParameter *a_pos = sceGxmProgramFindParameterByName(vg, "aPosition");
     const SceGxmProgramParameter *a_tex = sceGxmProgramFindParameterByName(vg, "aTexCoord");
@@ -236,6 +244,28 @@ void build_program(Program &P, const char *vname, const char *fname, ShaderId id
             P.p.u_frag[i] = sceGxmProgramFindParameterByName(fg, si.uniforms[i].name);
         }
     }
+}
+
+// Each Balatro shader compiles to <name>_v.gxp / <name>_f.gxp; shaders without a custom
+// position() share the default vertex program.
+void build_all_programs() {
+    for (int i = 0; i < (int)ShaderId::Count; i++) {
+        const ShaderInfo &si = shader_info((ShaderId)i);
+        std::string v = si.custom_vertex ? std::string(si.name) + "_v" : std::string("default_v");
+        std::string f = std::string(si.name) + "_f";
+        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, si.blend && !si.f16_target, si.f16_target);
+    }
+    build_program(g_clear, "default_v", "clear_f", ShaderId::Count, false);
+}
+
+void release_program(Program &P) {
+    sceGxmShaderPatcherReleaseFragmentProgram(g_patcher, P.fp);
+    sceGxmShaderPatcherReleaseVertexProgram(g_patcher, P.vp);
+    sceGxmShaderPatcherUnregisterProgram(g_patcher, P.fid);
+    sceGxmShaderPatcherUnregisterProgram(g_patcher, P.vid);
+    std::free((void *)P.fblob);
+    std::free((void *)P.vblob);
+    std::memset(&P, 0, sizeof P);
 }
 
 void ortho(float *m, float w, float h) {
@@ -318,15 +348,7 @@ bool backend_init() {
     pp.fragmentUsseOffset = fusse_off2;
     if (sceGxmShaderPatcherCreate(&pp, &g_patcher) < 0) return false;
 
-    // Each Balatro shader compiles to <name>_v.gxp / <name>_f.gxp; shaders without a custom
-    // position() share the default vertex program.
-    for (int i = 0; i < (int)ShaderId::Count; i++) {
-        const ShaderInfo &si = shader_info((ShaderId)i);
-        std::string v = si.custom_vertex ? std::string(si.name) + "_v" : std::string("default_v");
-        std::string f = std::string(si.name) + "_f";
-        build_program(g_progs[i], v.c_str(), f.c_str(), (ShaderId)i, si.blend && !si.f16_target, si.f16_target);
-    }
-    build_program(g_clear, "default_v", "clear_f", ShaderId::Count, false);
+    build_all_programs();
 
     g_notif_region = sceGxmGetNotificationRegion();
     for (int i = 0; i < kFrameArenas; i++) {
@@ -729,6 +751,25 @@ void backend_read_screen(std::vector<uint8_t> &out) {
     out.resize((size_t)kW * kH * 4);
     const uint8_t *src = (const uint8_t *)g_disp_mem[g_front];
     for (int y = 0; y < kH; y++) std::memcpy(&out[(size_t)y * kW * 4], src + (size_t)y * kStride * 4, (size_t)kW * 4);
+}
+
+std::string backend_reload_shaders(const std::vector<std::pair<std::string, std::string>> &files) {
+    for (const auto &f : files) {
+        if (f.second.size() < 16 || sceGxmProgramCheck((const SceGxmProgram *)f.second.data()) < 0)
+            return "not a valid gxp: " + f.first;
+        bool used = f.first == "default_v" || f.first == "clear_f";
+        for (int i = 0; i < (int)ShaderId::Count && !used; i++) {
+            const ShaderInfo &si = shader_info((ShaderId)i);
+            used = f.first == std::string(si.name) + "_f" || (si.custom_vertex && f.first == std::string(si.name) + "_v");
+        }
+        if (!used) return "no program uses " + f.first;
+    }
+    for (const auto &f : files) g_shader_override[f.first] = f.second;
+    sceGxmFinish(g_ctx);
+    for (int i = 0; i < (int)ShaderId::Count; i++) release_program(g_progs[i]);
+    release_program(g_clear);
+    build_all_programs();
+    return "";
 }
 
 }  // namespace vl::gfx
