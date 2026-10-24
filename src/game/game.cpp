@@ -133,6 +133,43 @@ bool in_overlay(Node *v) {
     return false;
 }
 
+// Vitalatro: with large menus on, a description popup (card, tag, blind...) is drawn enlarged
+// about the edge that touches what it describes, kept on screen. Popups never take input.
+void draw_popup_large(Node *v) {
+    auto *m = dynamic_cast<Moveable *>(v);
+    if (!m) {
+        draw_node(v);
+        return;
+    }
+    const float s = 1.5f, ppu = G.TILESCALE * G.TILESIZE, margin = 0.1f;
+    const float W = gfx::screen_width() / ppu, H = gfx::screen_height() / ppu;
+    const Transform &t = m->VT;
+    const float x = t.x + G.ROOM->T->x, y = t.y + G.ROOM->T->y;
+    const std::string &type = m->alignment.type;
+    float ax = x + t.w / 2, ay = y + t.h / 2;  // the anchor: the edge facing the described object
+    if (type.find('t') != std::string::npos && type.find('m') != std::string::npos) ay = y + t.h;  // above it
+    else if (type.find('b') != std::string::npos) ay = y;                                       // below it
+    else if (type.find('l') != std::string::npos) ax = x + t.w;                                 // left of it
+    else if (type.find('r') != std::string::npos) ax = x;                                       // right of it
+    // the scaled box, then the shift that keeps it inside the screen
+    float x0 = ax + (x - ax) * s, y0 = ay + (y - ay) * s, x1 = x0 + t.w * s, y1 = y0 + t.h * s;
+    float dx = 0, dy = 0;
+    if (x1 - x0 < W - 2 * margin) {
+        if (x0 < margin) dx = margin - x0;
+        else if (x1 > W - margin) dx = W - margin - x1;
+    }
+    if (y1 - y0 < H - 2 * margin) {
+        if (y0 < margin) dy = margin - y0;
+        else if (y1 > H - margin) dy = H - margin - y1;
+    }
+    gfx::push();
+    gfx::translate((ax + dx) * ppu, (ay + dy) * ppu);
+    gfx::scale(s);
+    gfx::translate(-ax * ppu, -ay * ppu);
+    draw_node(v);
+    gfx::pop();
+}
+
 void draw_zoomed(Node *v) {
     const auto &z = G.overlay_zoom;
     float ppu = G.TILESCALE * G.TILESIZE;
@@ -1166,7 +1203,9 @@ void Globals::update_draw_to_hand(double) {
     ease_background_colour_blind(DRAW_TO_HAND);
     E_MANAGER->add_event(ev_immediate([] {
         if (draw_from_deck_to_hand()) return true;
-        // TODO(run): jokers' calculate_joker{first_hand_drawn = true}
+        Value cr = G.GAME->get(K("current_round"));
+        if (fld(cr, "hands_played").num() == 0 && fld(cr, "discards_used").num() == 0 && G.GAME->get(K("facing_blind")).truthy())
+            for (auto &j : std::vector<CardRef>(G.jokers->cards)) j->calculate_joker(vl::T({{"first_hand_drawn", true}}));
         G.E_MANAGER->add_event(ev_immediate([] {
             G.STATE = SELECTING_HAND;
             G.STATE_COMPLETE = false;
@@ -1693,7 +1732,14 @@ void Globals::draw() {
     if (Card *fc = dynamic_cast<Card *>(CONTROLLER->focused.target.get())) {
         if (!(hand && fc->area == hand.get()) || CONTROLLER->focused.target == CONTROLLER->dragging.target) draw_node(fc);
     }
-    I.POPUP.each([&](Node *v) { draw_maybe_zoomed(v); });
+    // (VL_NO_ZOOM: frame comparisons with the original)
+    static const bool popups_plain = std::getenv("VL_NO_ZOOM") != nullptr;
+    const bool large_popups = !popups_plain && SETTINGS->get(K("vl_large_menus")).truthy();
+    I.POPUP.each([&](Node *v) {
+        if (overlay_zoom.on && in_overlay(v)) draw_zoomed(v);
+        else if (large_popups && !in_overlay(v)) draw_popup_large(v);
+        else draw_node(v);
+    });
     if (achievement_notification) draw_node(achievement_notification.get());
     if (screenwipe) draw_node(screenwipe.get());
     gfx::push();

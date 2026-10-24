@@ -13,6 +13,7 @@ Commands (answered by src/dev/devserver.cpp):
     shot <out.png>                        screenshot of the next frame
     set <key> <value> | get <key>         G.SETTINGS (also set vsync/bench/occlusion)
     run [seed] [stake] | menu | debugtable | restart
+    joker <key>[,<key>...]                add jokers to the current run (create_card + add_to_deck)
     shader <name>... | shader --changed   push compiled shaders (build/assets_vita/shaders/<name>.gxp)
                                           and rebuild the GPU programs, no reinstall
     put <local> <remote> | fetch <remote> <local>   files (remote paths like ux0:data/...)

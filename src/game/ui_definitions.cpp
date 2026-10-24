@@ -45,7 +45,6 @@ TableRef create_popup_UIBox_tooltip(const Value &) {
     return vl::T({{"n", (double)UIT_ROOT}, {"config", Value(vl::T({{"align", "cm"}}))}, {"nodes", Value(A({}))}});
 }
 
-TableRef create_UIBox_detailed_tooltip(const Value &v) { return create_popup_UIBox_tooltip(v); }
 
 TableRef create_UIBox_notify_alert(const Value &achievement, const Value &type, bool from_left) {
     Value c = G.P_CENTERS->get(achievement);

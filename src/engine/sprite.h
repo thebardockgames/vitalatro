@@ -96,6 +96,10 @@ public:
     std::vector<DissolveField> dissolve_fields;
     // the hologram variants: hologram.fs's glow for this sprite's cell, baked on the GPU once
     gfx::Texture *hologram_glow();
+    // flame.fs's grid field for this frame (vl_flame_field.fs), baked once per frame
+    gfx::Texture *flame_field(float time, float amount, float id);
+    gfx::Canvas *flame_canvas = nullptr;
+    uint32_t flame_frame = 0;
     gfx::Canvas *glow_canvas = nullptr;
     SpritePos glow_pos;
     gfx::Texture *glow_image = nullptr;

@@ -26,6 +26,9 @@ public:
     void set_seal(const Value &seal, bool silent = false, bool immediate = false);
     Value get_seal(bool bypass_debuff = false) const;
     void set_debuff(bool should_debuff);
+    void set_eternal(bool eternal);
+    void set_perishable(bool perishable);
+    void set_rental(bool rental);
     void remove_UI();
     void add_to_deck(bool from_debuff = false);
     void remove_from_deck(bool from_debuff = false);
@@ -67,6 +70,13 @@ public:
     void draw_layer(std::string_view layer);
     void release(Node *dragged) override;
     void highlight(bool is_highlighted);
+    void sell_card();
+    // the description popup (card_ui.cpp)
+    TableRef generate_UIBox_ability_table();
+    TableRef align_h_popup();
+    TableRef ability_UIBox_table;
+    Value get_field(const Value &key) const override;
+    bool can_sell_card() const;
     void click() override;
     void single_tap() override;
     bool has_single_tap() const override { return true; }
@@ -106,6 +116,7 @@ public:
     float send_to_shader[2] = {0, 0};
     bool removed = false;
     bool lucky_trigger = false, shattered = false, destroyed = false;
+    bool getting_sliced = false, vampired = false;
     Value back_overlay;
 };
 using CardRef = Ref<Card>;

@@ -68,7 +68,11 @@ bool Value::operator==(const Value &o) const {
     return false;
 }
 
-Value Value::get(const Value &key) const { return t_ == VT::Table ? u_.tab->get(key) : Value(); }
+Value Value::get(const Value &key) const {
+    if (t_ == VT::Table) return u_.tab->get(key);
+    if (t_ == VT::Obj && u_.obj) return u_.obj->get_field(key);
+    return Value();
+}
 Value Value::operator[](const char *key) const { return t_ == VT::Table ? u_.tab->get(key) : Value(); }
 Value Value::operator[](int i) const { return t_ == VT::Table ? u_.tab->get(i) : Value(); }
 

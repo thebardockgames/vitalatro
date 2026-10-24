@@ -10,6 +10,9 @@
 #include "engine/particles.h"
 #include "engine/random.h"
 #include "engine/ui.h"
+#include "game/blind.h"
+#include "game/card_factory.h"
+#include "game/card_ui.h"
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/state_events.h"
@@ -164,7 +167,8 @@ void Card::set_base(const Value &card_in, bool initial) {
             break;
         }
     }
-    // TODO(run): if not initial then G.GAME.blind:debuff_card(self)
+    if (!initial && G.GAME)
+        if (Blind *b = G.GAME->get(K("blind")).as<Blind>()) b->debuff_card(this);
     if (playing_card.truthy() && !initial) check_for_unlock(vl::T({{"type", "modify_deck"}}));
 }
 
@@ -381,7 +385,8 @@ void Card::set_ability(const Value &center, bool initial, bool delay_sprites) {
     }
     if ((G.jokers && area == G.jokers.get()) || (G.consumeables && area == G.consumeables.get()))
         check_for_unlock(vl::T({{"type", "modify_jokers"}}));
-    // TODO(run): if not initial then G.GAME.blind:debuff_card(self)
+    if (!initial && G.GAME)
+        if (Blind *b = G.GAME->get(K("blind")).as<Blind>()) b->debuff_card(this);
     if (playing_card.truthy() && !initial) check_for_unlock(vl::T({{"type", "modify_deck"}}));
 }
 
@@ -517,21 +522,6 @@ void Card::remove_UI() {
     config->set("h_popup", Value());
     config->set("h_popup_config", Value());
     no_ui = true;
-}
-
-void Card::add_to_deck(bool) {
-    if (!fld(config->get(K("center")), "discovered").truthy()) discover_card(config->get(K("center")));
-    if (!added_to_deck) {
-        added_to_deck = true;
-        // TODO(run): joker/consumeable side effects (hand size, discards, Credit Card, Chicot...)
-    }
-}
-
-void Card::remove_from_deck(bool) {
-    if (added_to_deck) {
-        added_to_deck = false;
-        // TODO(run): undo the add_to_deck side effects
-    }
 }
 
 double Card::get_nominal(const char *mod) const {
@@ -714,7 +704,32 @@ TableRef Card::get_end_of_round_effect() {
         ret->set("h_dollars", ability->get(K("h_dollars")));
         ret->set("card", Value((Object *)this));
     }
-    // TODO(run): the Blue seal's Planet card (create_card, hito 4)
+    Value game = Value(G.GAME);
+    if (seal.equals("Blue") &&
+        G.consumeables->cards.size() + fld(game, "consumeable_buffer").num() < G.consumeables->config->get(K("card_limit")).num()) {
+        G.GAME->set("consumeable_buffer", fld(game, "consumeable_buffer").num() + 1);
+        EventConfig e = ev_immediate([] {
+            Value last = G.GAME->get(K("last_hand_played"));
+            if (last.truthy()) {
+                Value planet(0);
+                G.P_CENTER_POOLS->get(K("Planet")).table()->each([&](const Value &, const Value &v) {
+                    if (fld(fld(v, "config"), "hand_type") == last) planet = fld(v, "key");
+                });
+                Card *card = create_card("Planet", G.consumeables.get(), false, Value(), false, false, planet.is_str() ? std::string(planet.str()) : "",
+                                         "blusl");
+                card->add_to_deck();
+                G.consumeables->emplace(card);
+                G.GAME->set("consumeable_buffer", 0);
+            }
+            return true;
+        });
+        e.trigger = Trigger::Before;
+        e.delay = 0;
+        G.E_MANAGER->add_event(e);
+        card_eval_status_text(this, "extra", 0, -1, nullptr,
+                              vl::T({{"message", localize("k_plus_planet")}, {"colour", fld(G.colour("SECONDARY_SET"), "Planet")}}));
+        ret->set("effect", true);
+    }
     return ret;
 }
 
@@ -770,7 +785,24 @@ Value Card::calculate_seal(const TableRef &context) {
     if (debuff) return Value();
     if (context->get(K("repetition")).truthy() && seal.equals("Red"))
         return Value(vl::T({{"message", localize("k_again_ex")}, {"repetitions", 1}, {"card", Value((Object *)this)}}));
-    // TODO(run): the Purple seal's Tarot card on discard (create_card, hito 4)
+    if (context->get(K("discard")).truthy()) {
+        Value game = Value(G.GAME);
+        if (seal.equals("Purple") &&
+            G.consumeables->cards.size() + fld(game, "consumeable_buffer").num() < G.consumeables->config->get(K("card_limit")).num()) {
+            G.GAME->set("consumeable_buffer", fld(game, "consumeable_buffer").num() + 1);
+            EventConfig e = ev_immediate([] {
+                Card *card = create_card("Tarot", G.consumeables.get(), false, Value(), false, false, "", "8ba");
+                card->add_to_deck();
+                G.consumeables->emplace(card);
+                G.GAME->set("consumeable_buffer", 0);
+                return true;
+            });
+            e.trigger = Trigger::Before;
+            e.delay = 0;
+            G.E_MANAGER->add_event(e);
+            card_eval_status_text(this, "extra", 0, -1, nullptr, vl::T({{"message", localize("k_plus_tarot")}, {"colour", G.colour("PURPLE")}}));
+        }
+    }
     return Value();
 }
 
@@ -797,11 +829,6 @@ void Card::calculate_perishable() {
     }
 }
 
-Value Card::calculate_joker(const TableRef &) {
-    if (debuff) return Value();
-    // TODO(run): the joker and planet effects (hito 3)
-    return Value();
-}
 
 void Card::start_materialize(TableRef colours, bool silent, float time_fac) {
     float dissolve_time = 0.6f * time_fac;
@@ -892,7 +919,7 @@ void Card::align() {
         f->T->x = T->x;
         f->T->r = T->r;
     }
-    if (Moveable *fu = dynamic_cast<Moveable *>(children.get("focused_ui"))) fu->set_alignment(AlignArgs{});
+    realign_focused_ui(this);
 }
 
 void Card::flip() {
@@ -937,7 +964,64 @@ void Card::update(double) {
             bypass_discovery_ui = true;
         }
         sell_cost_label = facing == "back" ? Value("?") : Value(sell_cost);
-        // TODO(run): per-joker live values (Temperance, Throwback, tallies, Blueprint compat...)
+        const Value nm = ability->get(K("name"));
+        const std::string_view name = nm.is_str() ? nm.str() : std::string_view();
+        auto center_name = [](Card *c) { return fld(c->config->get(K("center")), "name"); };
+        if (name == "Temperance") {
+            double money = 0;
+            for (auto &j : G.jokers->cards)
+                if (j->ability->get(K("set")).equals("Joker")) money += j->sell_cost;
+            ability->set("money", std::min(money, ability->get(K("extra")).num()));
+        }
+        if (name == "Throwback") ability->set("x_mult", 1 + G.GAME->get(K("skips")).num() * ability->get(K("extra")).num());
+        if (name == "Driver's License") {
+            int n = 0;
+            for (auto &c : G.playing_cards)
+                if (c->config->get(K("center")).truthy() && !center_name(c.get()).equals("Default Base")) n++;
+            ability->set("driver_tally", n);
+        }
+        if (name == "Steel Joker") {
+            int n = 0;
+            for (auto &c : G.playing_cards)
+                if (center_name(c.get()).equals("Steel Card")) n++;
+            ability->set("steel_tally", n);
+        }
+        if (name == "Cloud 9") {
+            int n = 0;
+            for (auto &c : G.playing_cards)
+                if (c->get_id() == 9) n++;
+            ability->set("nine_tally", n);
+        }
+        if (name == "Stone Joker") {
+            int n = 0;
+            for (auto &c : G.playing_cards)
+                if (center_name(c.get()).equals("Stone Card")) n++;
+            ability->set("stone_tally", n);
+        }
+        if (name == "Joker Stencil") {
+            double x = G.jokers->config->get(K("card_limit")).num() - G.jokers->cards.size();
+            for (auto &j : G.jokers->cards)
+                if (j->ability->get(K("name")).equals("Joker Stencil")) x += 1;
+            ability->set("x_mult", x);
+        }
+        // (The Wheel of Fortune / Ectoplasm / Hex: their eligible joker lists are built where they are used)
+        if (name == "Blueprint" || name == "Brainstorm") {
+            Card *other = nullptr;
+            if (name == "Brainstorm") {
+                other = G.jokers->cards.empty() ? nullptr : G.jokers->cards[0].get();
+            } else {
+                for (size_t i = 0; i < G.jokers->cards.size(); i++)
+                    if (G.jokers->cards[i].get() == this) other = i + 1 < G.jokers->cards.size() ? G.jokers->cards[i + 1].get() : nullptr;
+            }
+            const bool compat = other && other != this && fld(other->config->get(K("center")), "blueprint_compat").truthy();
+            ability->set("blueprint_compat", compat ? "compatible" : "incompatible");
+        }
+        if (name == "Swashbuckler") {
+            double sc = 0;
+            for (auto &j : G.jokers->cards)
+                if (j.get() != this && j->area && j->area == G.jokers.get()) sc += j->sell_cost;
+            ability->set("mult", sc);
+        }
     } else if (ability->get(K("name")).equals("Temperance")) {
         ability->set("money", 0);
     }
@@ -950,18 +1034,7 @@ void Card::hard_set_T(float x, float y, float w, float h) {
     sprite("center")->hard_set_T(x, y, w, h);
 }
 
-void Card::move(double dt) {
-    Moveable::move(dt);
-    // TODO(ui): h_popup re-alignment (align_h_popup) once card popups are ported
-}
 
-void Card::hover() {
-    float r = 0.03f;
-    juice_up_card(0.05f, &r);
-    play_sound("paper1", (float)(lua_math.random() * 0.2 + 0.9), 0.35f);
-    // TODO(ui): focused_ui (G.UIDEF.card_focus_ui) and the ability popup (G.UIDEF.card_h_popup)
-    if (facing == "front" && (!states.drag.is || G.CONTROLLER->HID.touch) && !no_ui) Node::hover();
-}
 
 void Card::stop_hover() { Node::stop_hover(); }
 
@@ -1220,7 +1293,85 @@ void Card::release(Node *dragged) {
 
 void Card::highlight(bool is_highlighted) {
     highlighted = is_highlighted;
-    // TODO(run): use/sell buttons (G.UIDEF.use_and_sell_buttons) for jokers and consumeables
+    const bool cons = ability->get(K("consumeable")).truthy(), joker = ability->get(K("set")).equals("Joker");
+    const bool owned = area && ((G.jokers && area == G.jokers.get()) || (G.consumeables && area == G.consumeables.get()));
+    if (cons || joker || (area && G.pack_cards && area == G.pack_cards.get())) {
+        if (highlighted && area && !area->config->get(K("type")).equals("shop")) {
+            const double x_off = cons ? -0.1 : 0;
+            if (Node *old = children.get("use_button")) old->remove();
+            children.set("use_button", new UIBox(use_and_sell_buttons(this),
+                                                 vl::T({{"align", owned ? "cr" : "bmi"},
+                                                        {"offset", Value(owned ? vl::T({{"x", x_off - 0.4}, {"y", 0}}) : vl::T({{"x", 0}, {"y", 0.65}}))},
+                                                        {"parent", Value((Object *)this)}})));
+        } else if (Node *b = children.get("use_button")) {
+            b->remove();
+            children.set("use_button", nullptr);
+        }
+    }
+    if (cons || joker) {
+        if (!highlighted && area && area->config->get(K("type")).equals("joker") &&
+            (G.jokers->cards.size() >= G.jokers->config->get(K("card_limit")).num() || (edition && edition->get(K("negative")).truthy())))
+            if (G.shop_jokers) G.shop_jokers->unhighlight_all();
+    }
+}
+
+void Card::sell_card() {
+    G.CONTROLLER->locks["selling_card"] = true;
+    stop_use();
+    CardArea *a = area;
+    const std::string area_name = a == G.jokers.get() ? "jokers" : "consumeables";
+    G.CONTROLLER->save_cardarea_focus(area_name);
+    for (const char *k : {"use_button", "sell_button"})
+        if (Node *b = children.get(k)) {
+            b->remove();
+            children.set(k, nullptr);
+        }
+    calculate_joker(vl::T({{"selling_self", true}}));
+    CardRef self(this);
+    G.E_MANAGER->add_event(ev_after(0.2, [self] {
+        play_sound("coin2");
+        float r = 0.4f;
+        self->juice_up_card(0.3f, &r);
+        return true;
+    }));
+    delay(0.2);
+    G.E_MANAGER->add_event(ev_immediate([self, area_name] {
+        ease_dollars(self->sell_cost);
+        self->start_dissolve(A({G.colour("GOLD")}));
+        delay(0.3);
+        inc_career_stat("c_cards_sold", 1);
+        if (self->ability->get(K("set")).equals("Joker")) inc_career_stat("c_jokers_sold", 1);
+        Blind *b = G.GAME->get(K("blind")).as<Blind>();
+        if (self->ability->get(K("set")).equals("Joker") && b && b->name == "Verdant Leaf")
+            G.E_MANAGER->add_event(ev_immediate([] {
+                G.GAME->get(K("blind")).as<Blind>()->disable();
+                return true;
+            }));
+        EventConfig e = ev_after(0.3, [area_name] {
+            G.E_MANAGER->add_event(ev_immediate([area_name] {
+                G.E_MANAGER->add_event(ev_immediate([area_name] {
+                    G.CONTROLLER->locks.erase("selling_card");
+                    G.CONTROLLER->recall_cardarea_focus(area_name);
+                    return true;
+                }));
+                return true;
+            }));
+            return true;
+        });
+        e.blocking = false;
+        G.E_MANAGER->add_event(e);
+        return true;
+    }));
+}
+
+bool Card::can_sell_card() const {
+    Value su = G.GAME->get(K("STOP_USE"));
+    if ((G.play && !G.play->cards.empty()) || G.CONTROLLER->locked || (su.truthy() && su.num() > 0)) return false;
+    if ((G.SETTINGS->get(K("tutorial_complete")).truthy() || !fld(G.GAME->get(K("pseudorandom")), "seed").equals("TUTORIAL") ||
+         fld(G.GAME->get(K("round_resets")), "ante").num() > 1) &&
+        area && area->config->get(K("type")).equals("joker") && !ability->get(K("eternal")).truthy())
+        return true;
+    return false;
 }
 
 void Card::click() {
@@ -1373,7 +1524,17 @@ void CardArea::change_size(int delta) {
         double real = (rl.truthy() ? rl.num() : self->config->get(K("card_limit")).num()) + delta;
         self->config->set("real_card_limit", real);
         self->config->set("card_limit", std::max(0.0, real));
-        // TODO(run): draw extra cards to hand when the hand grows mid round
+        if (delta > 0 && real > 1 && G.hand && self.get() == G.hand.get() && !self->cards.empty() &&
+            (G.STATE == DRAW_TO_HAND || G.STATE == SELECTING_HAND)) {
+            const int card_count = std::abs(delta);
+            for (int i = 1; i <= card_count; i++) {
+                draw_card(G.deck.get(), G.hand.get(), i * 100.0 / card_count, nullptr, false, nullptr, 0.07);
+                G.E_MANAGER->add_event(ev_immediate([self] {
+                    self->sort();
+                    return true;
+                }));
+            }
+        }
         if (G.hand && self.get() == G.hand.get()) check_for_unlock(vl::T({{"type", "min_hand_size"}}));
         return true;
     }));

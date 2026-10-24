@@ -35,6 +35,9 @@ set(COMMON_SRC
   src/game/button_callbacks.cpp
   src/game/blind.cpp
   src/game/card.cpp
+  src/game/card_factory.cpp
+  src/game/card_ui.cpp
+  src/game/jokers.cpp
   src/game/tag.cpp
   src/game/common_events.cpp
   src/game/g.cpp

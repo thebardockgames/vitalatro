@@ -13,6 +13,7 @@
 #include "core/time.h"
 #include "dev/devserver.h"
 #include "game/blind.h"
+#include "game/card_factory.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "game/state_events.h"
@@ -79,7 +80,16 @@ int main(int argc, char **argv) {
     const bool dev = std::getenv("VL_DEV") != nullptr;
     if (dev) last = 1 << 30;
     double next_frame = vl::time_now();
+    // VL_JOKERS="frame:j_a,j_b": create_card('Joker', G.jokers, nil, nil, nil, nil, key) for each (test hook)
+    int jokers_frame = -1;
+    std::string jokers_list;
+    if (const char *j = std::getenv("VL_JOKERS"))
+        if (const char *c = std::strchr(j, ':')) {
+            jokers_frame = std::atoi(j);
+            jokers_list = c + 1;
+        }
     for (int f = 1; f <= last; f++) {
+        if (f == jokers_frame) vl::add_jokers(jokers_list);
         if (dev) {
             next_frame += 1.0 / 60;
             vl::time_sleep(next_frame - vl::time_now());

@@ -55,6 +55,8 @@ TableRef create_UIBox_blind_tag(const char *blind_choice, bool run_info = false)
 TableRef create_UIBox_blind_choice(const char *type, bool run_info = false);
 TableRef create_UIBox_buttons();
 TableRef create_UIBox_round_evaluation();
+// G.UIDEF.use_and_sell_buttons(card)
+TableRef use_and_sell_buttons(class Card *card);
 // Seal, Enhanced, Edition
 TableRef create_UIBox_your_collection_special(const std::string &kind);
 

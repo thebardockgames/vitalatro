@@ -6,6 +6,7 @@
 #include <string>
 
 #include "core/lua_sort.h"
+#include "core/object.h"
 #include "engine/controller.h"
 #include "engine/event.h"
 #include "engine/particles.h"
@@ -780,7 +781,7 @@ void evaluate_play() {
                             hand_chips = mod_chips(old_mult);
                             em = ec = true;
                         }
-                        // TODO(run): extra.func (joker callbacks)
+                        if (Func *f = ex->get(K("func")).as<Func>()) f->call();
                         update_hand_text(vl::T({{"delay", 0}}), vl::T({{"chips", ec ? Value(hand_chips) : Value(false)}, {"mult", em ? Value(mult) : Value(false)}}));
                         card_eval_status_text(sc, "extra", 0, percent, nullptr, TableRef(ex));
                     }

@@ -33,6 +33,7 @@ public:
     void drawn_to_hand();
     void debuff_card(Card *card, bool from_blind = false);
     void defeat(bool silent = false);
+    void disable();
     // true when the blind did something on play (the caller juices the HUD)
     bool press_play();
     // modify_hand(cards, poker_hands, text, mult, hand_chips) -> mult, hand_chips, modded

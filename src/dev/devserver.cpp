@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/time.h"
+#include "game/card_factory.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "game/state_events.h"
@@ -300,6 +301,11 @@ void run_command(Request *r) {
         TableRef args = vl::T({{"stake", a.size() > 1 ? std::atof(a[1].c_str()) : 1.0}});
         if (!a.empty()) args->set("seed", Value(a[0]));
         start_run_with(nullptr, args);
+        finish(r, true, "");
+    } else if (c == "joker") {
+        // joker <key>[,<key>...]: as the tests' VL_JOKERS
+        if (!G.jokers) return finish(r, false, "no run");
+        add_jokers(join(a, 0));
         finish(r, true, "");
     } else if (c == "menu") {
         G.FUNCS["go_to_menu"](nullptr);

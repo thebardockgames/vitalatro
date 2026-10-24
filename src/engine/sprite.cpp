@@ -164,6 +164,18 @@ gfx::Texture *Sprite::hologram_glow() {
     return gfx::canvas_texture(glow_canvas);
 }
 
+gfx::Texture *Sprite::flame_field(float time, float amount, float id) {
+    const uint32_t frame = gfx::frame_index();
+    if (!flame_canvas) flame_canvas = gfx::acquire_canvas(60, 60, gfx::CanvasFormat::RGBA16F, gfx::Filter::Nearest);
+    if (flame_frame != frame) {
+        flame_frame = frame;
+        const float a[4] = {time, amount, id, 0};
+        gfx::send(gfx::ShaderId::VlFlameField, "vl_flame_a", a, 4);
+        gfx::prepass_fill(flame_canvas, gfx::ShaderId::VlFlameField);
+    }
+    return gfx::canvas_texture(flame_canvas);
+}
+
 void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
     bool no_tilt = a.no_tilt || G.reduced_motion();
     Moveable *dm = role.draw_major ? role.draw_major : this;
@@ -200,6 +212,17 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
         (G.vl_bench == 11 && sh == gfx::ShaderId::VlD0Hologram))
         sh = gfx::ShaderId::VlD0Dissolve;
 
+    // flame.fs: the grid field baked once per frame, then a cheap per-pixel pass (same image)
+    if (sh == gfx::ShaderId::Flame && G.FAST_SHADERS && a.custom_send) {
+        float time = 0, amount = 0, id = 0;
+        for (const ShaderSend &s : *a.custom_send) {
+            if (s.name == "time") time = (float)s.get().num();
+            else if (s.name == "amount") amount = (float)s.get().num();
+            else if (s.name == "id") id = (float)s.get().num();
+        }
+        gfx::set_aux_texture(0, flame_field(time, amount, id));
+        sh = gfx::ShaderId::VlFlame;
+    }
     bool identity = false;
     if (a.custom_send) {
         for (const ShaderSend &s : *a.custom_send) {
@@ -356,6 +379,8 @@ void Sprite::remove() {
     dissolve_fields.clear();
     gfx::release_canvas(glow_canvas);
     glow_canvas = nullptr;
+    gfx::release_canvas(flame_canvas);
+    flame_canvas = nullptr;
     G.ANIMATIONS.remove(this);
     G.I.SPRITE.remove(this);
     Moveable::remove();

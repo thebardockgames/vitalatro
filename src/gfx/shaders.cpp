@@ -67,6 +67,7 @@ const UniformDesc u_vl_dm_hologram[] = {CARD_LAYOUT("hologram"), {"vl_dis_c", 24
 const UniformDesc u_vl_d0_hologram[] = {CARD_LAYOUT("hologram"), {"vl_glow_rect", 24, 4}};
 const UniformDesc u_vl_hologram_glow[] = {{"vl_glow_rect", 0, 4}};
 const UniformDesc u_vl_dissolve_field[] = {{"vl_dis_a", 0, 4}, {"vl_dis_b", 4, 4}};
+const UniformDesc u_vl_flame_field[] = {{"vl_flame_a", 0, 4}};
 const UniformDesc u_skew[] = {{"hovering", 0, 1}, {"screen_scale", 1, 1}, {"mouse_screen_pos", 2, 2}};
 
 #define N(a) (uint8_t)(sizeof(a) / sizeof(a[0]))
@@ -105,6 +106,8 @@ const ShaderInfo kShaders[(int)ShaderId::Count] = {
     {"vl_dissolve_baked", u_vl_dissolve_baked, N(u_vl_dissolve_baked), 36, true},
     {"vl_dissolve_field", u_vl_dissolve_field, N(u_vl_dissolve_field), 8, false, true},
     {"vl_hologram_glow", u_vl_hologram_glow, N(u_vl_hologram_glow), 4, false, true},
+    {"vl_flame_field", u_vl_flame_field, N(u_vl_flame_field), 4, false, true},
+    {"vl_flame", u_flame, N(u_flame), 20, false},
     {"vl_d0_dissolve", u_dissolve, N(u_dissolve), 24, true},
     {"vl_d0_foil", u_foil, N(u_foil), 24, true},
     {"vl_d0_holo", u_holo, N(u_holo), 24, true},
@@ -187,6 +190,8 @@ float shader_cycles(ShaderId id) {
         if (id == ShaderId::VlDmNegativeShine) return 89.f;
         if (id == ShaderId::VlDmPolychrome) return 156.f;
         if (id == ShaderId::VlDissolveField) return 124.f;
+        if (id == ShaderId::VlFlameField) return 915.f;
+        if (id == ShaderId::VlFlame) return 30.f;
         if (id == ShaderId::VlDmHologram) return 103.f;
         if (id >= ShaderId::VlDmFoil && id <= ShaderId::VlDmHologram) return 150.f;
         return 4;

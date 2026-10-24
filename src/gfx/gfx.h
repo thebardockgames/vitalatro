@@ -20,6 +20,8 @@ enum class ShaderId : uint8_t {
     BgField, BgColor, CrtFast, VlPolychrome, CrtMap, BgMerged, BgField8, BgColor8, SplashField, SplashColor, VlDissolve, VlDissolveBaked,
     VlDissolveField,  // bakes a sprite's dissolve field (the pre-pass of vl_dissolve_baked and vl_dm_*)
     VlHologramGlow,   // bakes hologram.fs's glow for a sprite (the pre-pass of the hologram variants)
+    VlFlameField,     // bakes flame.fs's 60x60 grid field for a frame (the pre-pass of vl_flame)
+    VlFlame,          // flame.fs reading that bake
     // the card shaders with dissolve == 0 (vl_d0_*: no dissolve mask, fast trig), then while
     // dissolving (vl_dm_*: the mask from the baked field); same order as kShaders in shaders.cpp
     VlD0Dissolve, VlD0Foil, VlD0Holo, VlD0Polychrome, VlD0Negative, VlD0NegativeShine, VlD0Booster, VlD0Voucher, VlD0Debuff, VlD0Played, VlD0Hologram,

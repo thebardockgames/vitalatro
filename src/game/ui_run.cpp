@@ -508,6 +508,65 @@ TableRef create_UIBox_buttons() {
                         .table());
 }
 
+TableRef use_and_sell_buttons(Card *card) {
+    auto nd = [](int uit, TableRef cfg, TableRef nodes = nullptr) {
+        TableRef t = vl::T({{"n", (double)uit}, {"config", Value(cfg)}});
+        if (nodes) t->set("nodes", Value(nodes));
+        return Value(t);
+    };
+    auto ui = [](const char *n) { return G.colour("UI").get(Value(intern(n))); };
+    Value self = Value((Object *)card);
+    Value sell, use;
+    const bool joker_area = card->area && card->area->config->get(K("type")).equals("joker");
+    if (joker_area) {
+        sell = nd(UIT_C, vl::T({{"align", "cr"}}),
+                  A({nd(UIT_C,
+                        vl::T({{"ref_table", self}, {"align", "cr"}, {"padding", 0.1}, {"r", 0.08}, {"minw", 1.25}, {"hover", true}, {"shadow", true},
+                               {"colour", ui("BACKGROUND_INACTIVE")}, {"one_press", true}, {"button", "sell_card"}, {"func", "can_sell_card"}}),
+                        A({nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.6}})),
+                           nd(UIT_C, vl::T({{"align", "tm"}}),
+                              A({nd(UIT_R, vl::T({{"align", "cm"}, {"maxw", 1.25}}),
+                                    A({nd(UIT_T, vl::T({{"text", localize("b_sell")}, {"colour", ui("TEXT_LIGHT")}, {"scale", 0.4}, {"shadow", true}}))})),
+                                 nd(UIT_R, vl::T({{"align", "cm"}}),
+                                    A({nd(UIT_T, vl::T({{"text", localize("$")}, {"colour", G.colour("WHITE")}, {"scale", 0.4}, {"shadow", true}})),
+                                       nd(UIT_T, vl::T({{"ref_table", self}, {"ref_value", "sell_cost_label"}, {"colour", G.colour("WHITE")}, {"scale", 0.55},
+                                                        {"shadow", true}}))}))}))}))}));
+    }
+    const bool in_pack = card->area && G.pack_cards && card->area == G.pack_cards.get();
+    if (card->ability->get(K("consumeable")).truthy()) {
+        if (in_pack)
+            return TableRef(nd(UIT_ROOT, vl::T({{"padding", 0}, {"colour", G.colour("CLEAR")}}),
+                               A({nd(UIT_R, vl::T({{"mid", true}}), A({})),
+                                  nd(UIT_R,
+                                     vl::T({{"ref_table", self}, {"r", 0.08}, {"padding", 0.1}, {"align", "bm"}, {"minw", 0.5 * card->T->w - 0.15},
+                                            {"minh", 0.8 * card->T->h}, {"maxw", 0.7 * card->T->w - 0.15}, {"hover", true}, {"shadow", true},
+                                            {"colour", ui("BACKGROUND_INACTIVE")}, {"one_press", true}, {"button", "use_card"}, {"func", "can_use_consumeable"}}),
+                                     A({nd(UIT_T, vl::T({{"text", localize("b_use")}, {"colour", ui("TEXT_LIGHT")}, {"scale", 0.55}, {"shadow", true}}))}))}))
+                               .table());
+        use = nd(UIT_C, vl::T({{"align", "cr"}}),
+                 A({nd(UIT_C,
+                       vl::T({{"ref_table", self}, {"align", "cr"}, {"maxw", 1.25}, {"padding", 0.1}, {"r", 0.08}, {"minw", 1.25}, {"minh", joker_area ? 0 : 1},
+                              {"hover", true}, {"shadow", true}, {"colour", ui("BACKGROUND_INACTIVE")}, {"one_press", true}, {"button", "use_card"},
+                              {"func", "can_use_consumeable"}}),
+                       A({nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.6}})),
+                          nd(UIT_T, vl::T({{"text", localize("b_use")}, {"colour", ui("TEXT_LIGHT")}, {"scale", 0.55}, {"shadow", true}}))}))}));
+    } else if (in_pack) {
+        return TableRef(nd(UIT_ROOT, vl::T({{"padding", 0}, {"colour", G.colour("CLEAR")}}),
+                           A({nd(UIT_R,
+                                 vl::T({{"ref_table", self}, {"r", 0.08}, {"padding", 0.1}, {"align", "bm"}, {"minw", 0.5 * card->T->w - 0.15},
+                                        {"maxw", 0.9 * card->T->w - 0.15}, {"minh", 0.3 * card->T->h}, {"hover", true}, {"shadow", true},
+                                        {"colour", ui("BACKGROUND_INACTIVE")}, {"one_press", true}, {"button", "use_card"}, {"func", "select_button_check"}}),
+                                 A({nd(UIT_T, vl::T({{"text", localize("b_select")}, {"colour", ui("TEXT_LIGHT")}, {"scale", 0.45}, {"shadow", true}}))}))}))
+                            .table());
+    }
+    // (Lua drops nil entries from the node lists: an absent sell/use leaves its row empty)
+    return TableRef(nd(UIT_ROOT, vl::T({{"padding", 0}, {"colour", G.colour("CLEAR")}}),
+                       A({nd(UIT_C, vl::T({{"padding", 0.15}, {"align", "cl"}}),
+                             A({nd(UIT_R, vl::T({{"align", "cl"}}), sell.truthy() ? A({sell}) : A({})),
+                                nd(UIT_R, vl::T({{"align", "cl"}}), use.truthy() ? A({use}) : A({}))}))}))
+                        .table());
+}
+
 TableRef create_UIBox_round_evaluation() {
     const double width = G.hand->T->w - 2;
     auto row = [](TableRef cfg, TableRef nodes) { return Value(vl::T({{"n", (double)UIT_R}, {"config", Value(cfg)}, {"nodes", Value(nodes)}})); };

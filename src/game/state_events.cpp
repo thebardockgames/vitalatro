@@ -544,7 +544,7 @@ void new_round() {
         }
         G.GAME->set("subhash", Value(ante_str() + blhash));
         game_blind()->set_blind(rblind);
-        // TODO(run): jokers' calculate_joker{setting_blind = true}
+        for (auto &j : std::vector<CardRef>(G.jokers->cards)) j->calculate_joker(vl::T({{"setting_blind", true}, {"blind", rblind}}));
         delay(0.4);
         G.E_MANAGER->add_event(ev_immediate([] {
             G.STATE = DRAW_TO_HAND;
@@ -1004,7 +1004,7 @@ void skip_blind(UIElement *e) {
     play_sound("generic1");
     G.E_MANAGER->add_event(ev_immediate([] {
         delay(0.3);
-        // TODO(run): jokers' calculate_joker{skip_blind = true}
+        for (auto &j : std::vector<CardRef>(G.jokers->cards)) j->calculate_joker(vl::T({{"skip_blind", true}}));
         save_run();
         Table *tags = gt("tags");
         for (int i = 1; i <= tags->len(); i++)
@@ -1277,6 +1277,27 @@ void register_run_callbacks() {
     F["play_cards_from_highlighted"] = [](UIElement *) { play_cards_from_highlighted(); };
     F["discard_cards_from_highlighted"] = [](UIElement *) { discard_cards_from_highlighted(); };
     F["cash_out"] = cash_out;
+    F["can_sell_card"] = [](UIElement *e) {
+        Card *c = cfgv(e, "ref_table").as<Card>();
+        if (c && c->can_sell_card()) {
+            e->config->set("colour", G.colour("GREEN"));
+            e->config->set("button", "sell_card");
+        } else {
+            e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+            e->config->set("button", Value());
+        }
+    };
+    F["sell_card"] = [](UIElement *e) {
+        Card *card = cfgv(e, "ref_table").as<Card>();
+        card->sell_card();
+        for (auto &j : std::vector<CardRef>(G.jokers->cards))
+            if (j.get() != card) j->calculate_joker(vl::T({{"selling_card", true}, {"card", Value((Object *)card)}}));
+    };
+    F["can_use_consumeable"] = [](UIElement *e) {
+        // TODO(run): Card:can_use_consumeable (hito 4); until then the Use button stays inactive
+        e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+        e->config->set("button", Value());
+    };
     F["go_to_menu"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
         G.E_MANAGER->clear_queue();
