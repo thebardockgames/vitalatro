@@ -41,9 +41,27 @@ Sprite *icon_sprite(float w, float h, float x, float y) {
 }
 }  // namespace
 
-// TODO(ui): the real tooltip layouts; an empty root keeps hover popups harmless until then.
-TableRef create_popup_UIBox_tooltip(const Value &) {
-    return vl::T({{"n", (double)UIT_ROOT}, {"config", Value(vl::T({{"align", "cm"}}))}, {"nodes", Value(A({}))}});
+// create_popup_UIBox_tooltip(tooltip): {title, text = {lines or {ref_table, ref_value}}, filler = {func, args}}
+TableRef create_popup_UIBox_tooltip(const Value &tooltip) {
+    TableRef rows = new_table();
+    const Value title = fld(tooltip, "title");
+    if (title.truthy())
+        rows->push(node(UIT_R, vl::T({{"align", "cm"}}),
+                        A({node(UIT_C, vl::T({{"align", "cm"}}), A({node(UIT_T, vl::T({{"text", title}, {"colour", ui_col("TEXT_DARK")}, {"scale", 0.4}}))}))})));
+    if (Table *text = fld(tooltip, "text").table())
+        for (int i = 1; i <= text->len(); i++) {
+            const Value line = text->get(i);
+            TableRef cfg = line.is_table() ? vl::T({{"ref_table", fld(line, "ref_table")}, {"ref_value", fld(line, "ref_value")}})
+                                           : vl::T({{"text", line}});
+            cfg->set("colour", ui_col("TEXT_DARK"));
+            cfg->set("scale", 0.4);
+            rows->push(node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.03}}), A({node(UIT_T, cfg)})));
+        }
+    const Value filler = fld(tooltip, "filler");
+    if (Func *f = fld(filler, "func").as<Func>()) rows->push(f->call(fld(filler, "args")));
+    return TableRef(node(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", col("RED")}, {"emboss", 0.05}}),
+                         A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", col("WHITE")}, {"emboss", 0.05}}), rows)}))
+                        .table());
 }
 
 

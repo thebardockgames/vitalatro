@@ -659,6 +659,7 @@ void register_button_callbacks() {
     register_shop_callbacks();
     register_game_over_callbacks();
     register_run_setup_callbacks();
+    register_run_info_callbacks();
     register_consumable_callbacks();
     register_booster_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };

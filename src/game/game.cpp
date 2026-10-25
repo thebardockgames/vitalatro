@@ -1218,7 +1218,39 @@ void Globals::update_draw_to_hand(double) {
 }
 
 void Globals::update_selecting_hand(double) {
-    // TODO(run): the deck preview while hovering the deck
+    // the deck preview: hovering the deck (touch), the cursor on it, or holding L2
+    Card *top = deck && !deck->cards.empty() ? deck->cards[0].get() : nullptr;
+    const bool touch = CONTROLLER->HID.touch, ctrl = CONTROLLER->HID.controller;
+    auto held_l2 = [] { return G.CONTROLLER->held_buttons["triggerleft"]; };
+    if (!deck_preview && !OVERLAY_MENU &&
+        ((top && ((touch && top->states.hover.is) || (!touch && top->states.collide.is && !top->states.drag.is)) && !ctrl) || held_l2())) {
+        if (buttons) buttons->states.visible = false;
+        deck_preview = new UIBox(vl::deck_preview(), vl::T({{"align", "tm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -0.8}}))}, {"major", Value((Object *)hand.get())},
+                                                           {"bond", "Weak"}}));
+        EventConfig e = ev_immediate([held_l2] {
+            Card *top = G.deck && !G.deck->cards.empty() ? G.deck->cards[0].get() : nullptr;
+            if (G.deck_preview && !((top && top->states.collide.is && !G.CONTROLLER->HID.controller) || held_l2())) {
+                G.deck_preview->remove();
+                G.deck_preview = nullptr;
+                NodeRef card(G.CONTROLLER->focused.target);
+                const double start = G.TIMERS.REAL;
+                G.E_MANAGER->add_event(ev_immediate([card, start] {
+                    auto *c = dynamic_cast<Card *>(card.get());
+                    if (c && c->area && c->area == G.hand.get()) {
+                        XY p = c->put_focused_cursor();
+                        const XY t{p.x / (G.TILESCALE * G.TILESIZE), p.y / (G.TILESCALE * G.TILESIZE)};
+                        G.CONTROLLER->update_cursor(&t);
+                    }
+                    return start + 0.4 < G.TIMERS.REAL;
+                }));
+                return true;
+            }
+            return false;
+        });
+        e.blocking = false;
+        e.blockable = false;
+        E_MANAGER->add_event(e);
+    }
     if (!buttons && !deck_preview)
         buttons = new UIBox(create_UIBox_buttons(), vl::T({{"align", "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0.3}}))}, {"major", Value((Object *)hand.get())},
                                                           {"bond", "Weak"}}));

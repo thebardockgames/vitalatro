@@ -19,6 +19,7 @@
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/sound.h"
+#include "game/card_ui.h"
 #include "game/tag.h"
 #include "game/button_callbacks.h"
 #include "game/ui_definitions.h"
@@ -1333,15 +1334,33 @@ void register_run_callbacks() {
     };
     F["select_blind"] = select_blind;
     F["blind_choice_handler"] = blind_choice_handler;
-    F["hover_tag_proxy"] = [](UIElement *) {
-        // TODO(ui): the tag's description popup
+    // the skip button (and its label) show the tag's description while hovered
+    F["hover_tag_proxy"] = [](UIElement *e) {
+        Node *par = e->parent;
+        if (!par) return;
+        const bool paused = G.SETTINGS->get(K("paused")).truthy();
+        Tag *tag = e->config->get(K("ref_table")).as<Tag>();
+        if ((e->states.hover.is || par->states.hover.is) && e->created_on_pause == paused && !par->children.get("alert") && tag) {
+            tag->get_uibox_table();
+            TagSprite *sp = tag->tag_sprite.get();
+            UIBox *alert = new UIBox(card_h_popup(sp->ability_UIBox_table, Value(sp->config)),
+                                     vl::T({{"align", "tm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -0.1}}))}, {"major", Value((Object *)par)}, {"instance_type", "POPUP"}}));
+            par->children.set("alert", alert);
+            float r = 0.02f;
+            sp->juice_up(0.05f, &r);
+            play_sound("paper1", (float)(lua_math.random() * 0.1 + 0.55), 0.42f);
+            play_sound("tarot2", (float)(lua_math.random() * 0.1 + 0.55), 0.09f);
+            alert->states.collide.can = false;
+        } else if (Node *alert = par->children.get("alert");
+                   alert && ((!e->states.collide.is && !par->states.collide.is) || e->created_on_pause != paused)) {
+            alert->remove();
+            par->children.set("alert", nullptr);
+        }
     };
     F["skip_blind"] = skip_blind;
     F["reroll_boss"] = [](UIElement *e) { reroll_boss(e); };
     F["reroll_boss_button"] = reroll_boss_button;
-    F["run_info"] = [](UIElement *) {
-        // TODO(run): the run info overlay
-    };
+    // (run_info, deck_info: run_info.cpp)
     F["play_cards_from_highlighted"] = [](UIElement *) { play_cards_from_highlighted(); };
     F["discard_cards_from_highlighted"] = [](UIElement *) { discard_cards_from_highlighted(); };
     F["cash_out"] = cash_out;

@@ -86,6 +86,9 @@ void register_game_over_callbacks();
 // 'from_game_over' / 'from_game_won', which cannot be closed)
 void open_run_setup(const std::string &from);
 void register_run_setup_callbacks();
+void register_run_info_callbacks();
+// G.UIDEF.deck_preview(): the deck's counts while hovering it (run_info.cpp)
+TableRef deck_preview();
 TableRef create_UIBox_round_scores_row(const std::string &score, const Value &text_colour = Value());
 
 }  // namespace vl
