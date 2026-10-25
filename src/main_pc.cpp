@@ -14,6 +14,10 @@
 #include "dev/devserver.h"
 #include "game/blind.h"
 #include "game/card_factory.h"
+#include "engine/particles.h"
+#include "engine/text.h"
+#include "engine/ui.h"
+#include "game/card.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "game/state_events.h"
@@ -94,12 +98,72 @@ int main(int argc, char **argv) {
             next_frame += 1.0 / 60;
             vl::time_sleep(next_frame - vl::time_now());
         }
+        // VL_DOLLARS="frame:n": G.GAME.dollars = n at that frame (test hook)
+        if (const char *d = std::getenv("VL_DOLLARS"); d && std::strchr(d, ':') && std::atoi(d) == f)
+            vl::G.GAME->set("dollars", std::atof(std::strchr(d, ':') + 1));
         if (f == chips_frame)
             if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = chips_val;
+        // VL_DECK=b_plasma: the run's deck; VL_COMBO="frame:hand delta": combo_setup at that frame
+        if (const char *d = std::getenv("VL_DECK"); d && f == run_frame)
+            vl::G.GAME->set("viewed_back", vl::Value((vl::Object *)new vl::Back(vl::G.P_CENTERS->get(vl::Value(d)))));
+        if (const char *c = std::getenv("VL_COMBO"); c && std::atoi(c) == f) vl::combo_setup(std::strchr(c, ':') ? std::atoi(std::strchr(c, ':') + 1) : 44);
         if (f == run_frame) vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", 1}}));
         // VL_GPU_EST=2 lists the large draws of each captured frame
         vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);
+        // VL_ID_DETAIL="f,f": every Node created during those frames, by class (as REF_ID_DETAIL)
+        static std::set<int> detail_frames = [] {
+            std::set<int> s;
+            if (const char *d = std::getenv("VL_ID_DETAIL"))
+                for (const char *p = d; *p;) {
+                    s.insert(std::atoi(p));
+                    while (*p && *p != ',') p++;
+                    if (*p) p++;
+                }
+            return s;
+        }();
+        std::vector<vl::NodeRef> detail_log;
+        if (detail_frames.count(f)) vl::G.id_detail_log = &detail_log;
         vl::game_frame(1.0 / 60);
+        vl::G.id_detail_log = nullptr;
+        // VL_PROBE_FLAMES="f,f": the flame shaders' inputs (as REF_PROBE on G.ARGS.chip_flames...)
+        if (const char *pf = std::getenv("VL_PROBE_FLAMES"))
+            for (const char *p = pf; *p;) {
+                if (std::atoi(p) == f)
+                    for (const char *k : {"chip_flames", "mult_flames"}) {
+                        vl::Value fl = vl::G.ARGS->get(vl::Value(k));
+                        if (!fl.truthy()) continue;
+                        std::printf("FLAMES %d %s timer %.6f real_intensity %.6f intensity %.6f REAL %.6f\n", f, k, fl.get(vl::Value("timer")).num(),
+                                    fl.get(vl::Value("real_intensity")).num(), fl.get(vl::Value("intensity")).num(), vl::G.TIMERS.REAL);
+                    }
+                while (*p && *p != ',') p++;
+                if (*p) p++;
+            }
+        if (const char *pf = std::getenv("VL_PROBE_SIGN"); pf && std::atoi(pf) == f)
+            if (auto *box = dynamic_cast<vl::UIBox *>(vl::G.SHOP_SIGN.get())) {
+                auto *e = dynamic_cast<vl::UIElement *>(box->UIRoot->children.at(0)->children.at(0)->children.at(0));
+                auto *o = dynamic_cast<vl::Moveable *>(e->config->get(vl::Value("object")).obj());
+                std::printf("PROBE spriteT %.4f %.4f %.4f %.4f par %.4f %.4f uie %.4f %.4f roomw %.4f\n", o->T->x, o->T->y, o->T->w, o->T->h,
+                            o->shadow_parrallax->x, o->shadow_parrallax->y, e->T->x, e->T->y, vl::G.ROOM->T->w);
+            }
+        for (auto &n : detail_log) {
+            std::string tag = "Node";
+            if (dynamic_cast<vl::Card *>(n.get())) tag = "Card";
+            else if (dynamic_cast<vl::CardArea *>(n.get())) tag = "CardArea";
+            else if (dynamic_cast<vl::UIBox *>(n.get())) tag = "UIBox";
+            else if (auto *e = dynamic_cast<vl::UIElement *>(n.get())) {
+                tag = "UIE" + std::to_string(e->UIT);
+                vl::Value id = e->config->get(vl::Value("id")), text = e->config->get(vl::Value("text"));
+                if (id.truthy()) tag += ":" + id.to_string();
+                if (text.truthy()) tag += ":" + text.to_string();
+            } else if (dynamic_cast<vl::DynaText *>(n.get())) tag = "DynaText";
+            else if (dynamic_cast<vl::AnimatedSprite *>(n.get())) tag = "AnimatedSprite";
+            else if (dynamic_cast<vl::Sprite *>(n.get())) tag = "Sprite";
+            else if (dynamic_cast<vl::Particles *>(n.get())) tag = "Particles";
+            else if (dynamic_cast<vl::Moveable *>(n.get())) tag = "Moveable";
+            std::printf("NODE %d %d %s\n", f, n->ID, tag.c_str());
+        }
+        static const bool dump_id = std::getenv("VL_DUMP_ID") != nullptr;
+        if (dump_id) std::printf("ID %d %d\n", f, vl::G.ID);  // node IDs (VL_DUMP_ID, vs REF_DUMP_ID)
         if (frames.count(f)) {
             std::string out = prefix + "_" + std::to_string(f) + ".png";
             shot(out);

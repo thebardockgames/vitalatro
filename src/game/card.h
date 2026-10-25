@@ -26,6 +26,7 @@ public:
     void set_seal(const Value &seal, bool silent = false, bool immediate = false);
     Value get_seal(bool bypass_debuff = false) const;
     void set_debuff(bool should_debuff);
+    void change_suit(const std::string &new_suit);
     void set_eternal(bool eternal);
     void set_perishable(bool perishable);
     void set_rental(bool rental);
@@ -71,6 +72,13 @@ public:
     void release(Node *dragged) override;
     void highlight(bool is_highlighted);
     void sell_card();
+    // shop / consumables / boosters
+    void redeem();
+    bool check_use();
+    bool can_use_consumeable(bool any_state = false, bool skip_check = false);
+    void use_consumeable(CardArea *area, Card *copier = nullptr);
+    void open();
+    void explode(TableRef colours = nullptr, double explode_time_fac = 1);
     // the description popup (card_ui.cpp)
     TableRef generate_UIBox_ability_table();
     TableRef align_h_popup();
@@ -117,6 +125,9 @@ public:
     bool removed = false;
     bool lucky_trigger = false, shattered = false, destroyed = false;
     bool getting_sliced = false, vampired = false;
+    bool opening = false, shop_voucher = false, from_tag = false;
+    bool lua_discovered = false;  // card.discovered, set when discover_card() is handed the card itself
+    std::vector<Ref<Card>> eligible_strength_jokers, eligible_editionless_jokers;  // (Card:update)
     Value back_overlay;
 };
 using CardRef = Ref<Card>;

@@ -1202,11 +1202,9 @@ void register_run_callbacks() {
             Table *F = G.ARGS->get(Value(v.arg_tab)).table();
             const double dt = G.real_dt;
             const double exptime = std::exp(-0.4 * dt);
-            Table *ch = gt("current_round")->get(K("current_hand")).table();
-            Value hc = ch->get(K("chips")), hm = ch->get(K("mult"));
-            const double earned = hc.is_num() && hm.is_num() ? hc.num() * hm.num() : 0;
-            Blind *b = game_blind();
-            const double required = b ? b->chips : 0;
+            // G.ARGS.score_intensity, set by modulate_sound before the frame's events
+            const Value si = G.ARGS->get(K("score_intensity"));
+            const double earned = fld(si, "earned_score").num(), required = fld(si, "required_score").num();
             double intensity = 0;
             if (earned >= required && required > 0)
                 intensity = ((G.pack_cards && !G.pack_cards->REMOVED) || G.TAROT_INTERRUPT) ? 0 : std::max(0.0, std::log(earned) / std::log(5.0) - 2);

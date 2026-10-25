@@ -114,6 +114,7 @@ struct Globals {
     } exp_times;
     double real_dt = 0, SPEEDFACTOR = 1;
     int ID = 1;
+    std::vector<NodeRef> *id_detail_log = nullptr;  // tests: every Node created this frame (VL_ID_DETAIL)
 
     // ---------------------------------------------------------------- render scale
     float TILESIZE = 20, TILESCALE = 3.65f, TILE_W = 21, TILE_H = 11.2f;
@@ -202,6 +203,9 @@ struct Globals {
     bool round_eval_divider_added = false;  // G.round_eval.divider_added
     bool boss_throw_hand = false;           // G.boss_throw_hand
     std::map<std::string, NodeRef> blind_select_opts;  // G.blind_select_opts.small/big/boss
+    NodeRef SHOP_SIGN;
+    Ref<Moveable> booster_pack_sparkles, booster_pack_stars, booster_pack_meteors;
+    std::map<std::string, Ref<Moveable>> DRAG_TARGETS;  // G.DRAG_TARGETS (touch: buy/sell/use zones)
     std::vector<NodeRef> HUD_tags;
     int sort_id = 0;
     double last_materialized = 0;

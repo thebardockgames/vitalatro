@@ -12,8 +12,10 @@ Commands (answered by src/dev/devserver.cpp):
     input "<f>:<button> <f>:touch:<x>:<y>"  scripted input, frames counted from now; answers when done
     shot <out.png>                        screenshot of the next frame
     set <key> <value> | get <key>         G.SETTINGS (also set vsync/bench/occlusion)
-    run [seed] [stake] | menu | debugtable | restart
+    run [seed] [stake] [deck] | menu | debugtable | restart
     joker <key>[,<key>...]                add jokers to the current run (create_card + add_to_deck)
+    skip [shader...]                      the GPU skips those shaders' draws (none: back to normal), to measure them
+    combo [hand delta]                    naneinf stress test: Steel Red-Seal Kings, Mime/Blueprint/Baron/Brainstorm/Sock (run X 1 b_plasma first)
     shader <name>... | shader --changed   push compiled shaders (build/assets_vita/shaders/<name>.gxp)
                                           and rebuild the GPU programs, no reinstall
     put <local> <remote> | fetch <remote> <local>   files (remote paths like ux0:data/...)

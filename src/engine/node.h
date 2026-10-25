@@ -165,6 +165,8 @@ struct RoleArgs {
 struct Alignment {
     std::string type = "a";
     XY offset;
+    bool has_py = false;  // alignment.offset.py: where G.FUNCS.use_card parks a UIBox's offset.y
+    float py = 0;
     std::string prev_type = "";
     XY prev_offset;
     bool lr_clamp = false;

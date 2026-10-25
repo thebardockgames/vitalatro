@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 
 #include "engine/controller.h"
@@ -857,6 +858,30 @@ void register_card_ui_callbacks() {
 
 // ------------------------------------------------------------------ G.UIDEF.card_focus_ui (controller)
 namespace {
+// Vitalatro: the controller's card buttons are 1.4x with large menus on (not in frame comparisons)
+}  // namespace
+double focus_button_scale() {
+    static const bool plain = std::getenv("VL_NO_ZOOM") != nullptr;
+    return !plain && G.SETTINGS->get(K("vl_large_menus")).truthy() ? 1.4 : 1;
+}
+namespace {
+
+// every size in a UI definition (text scale, min/max sizes, padding, corner radius, button pip) times k
+void scale_ui_tree(const Value &node, double k) {
+    Table *n = node.table();
+    if (!n) return;
+    if (Table *cfg = n->get(K("config")).table()) {
+        for (const char *key : {"scale", "minw", "minh", "maxw", "maxh", "padding", "w", "h", "r"}) {
+            Value v = cfg->get(Value(intern(key)));
+            if (v.is_num()) cfg->set(Value(intern(key)), v.num() * k);
+        }
+        if (Table *fa = cfg->get(K("focus_args")).table())
+            if (fa->get(K("scale")).is_num()) fa->set("scale", fa->get(K("scale")).num() * k);
+    }
+    if (Table *nodes = n->get(K("nodes")).table())
+        for (int i = 1; i <= nodes->len(); i++) scale_ui_tree(nodes->get(i), k);
+}
+
 UIBox *card_focus_button(Card *card, UIElement *parent, const std::string &type, const char *func, const char *button, double card_width,
                          bool buy_and_use = false) {
     Value contents;
@@ -911,7 +936,11 @@ UIBox *card_focus_button(Card *card, UIElement *parent, const std::string &type,
     t0.y = card->VT.y;
     t0.w = t0.h = 0;
     const double ox = (sell ? -1 : 1) * (card_width - 0.17 - card->T->w / 2);
-    const double oy = type == "buy_and_use" ? 0.6 : buy_and_use ? -0.6 : 0;
+    const double k = focus_button_scale();
+    const double oy = (type == "buy_and_use" ? 0.6 : buy_and_use ? -0.6 : 0) * k;
+    // Vitalatro: with large menus on (not in frame comparisons), the button is built 1.4x larger;
+    // it grows away from the card (aligned to the card's edge)
+    if (k != 1) scale_ui_tree(Value(def), k);
     return new UIBox(def, vl::T({{"align", sell ? "cl" : "cr"}, {"offset", Value(vl::T({{"x", ox}, {"y", oy}}))}, {"parent", Value((Object *)parent)}}), &t0);
 }
 }  // namespace

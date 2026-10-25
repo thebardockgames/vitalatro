@@ -1,5 +1,6 @@
 // PC (Linux/WSL) platform for the headless test build: no window, no input. Data is read from
 // the directory given by VL_DATA (defaults to ./data).
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -105,13 +106,17 @@ void fatal(const char *fmt, ...) {
 }
 
 // Scripted input for the headless runner: VL_INPUT="1200:cross 1260:down 1300:touch:480:300"
-// presses a button (or touches a point) for 6 frames starting at the given frame.
+// presses a button (or touches a point) for 6 frames starting at the given frame;
+// "f:drag:x1:y1:x2:y2:n" touches (x1, y1), moves to (x2, y2) over n frames, holds 6 and releases.
 namespace {
 struct ScriptEvent {
     int frame;
     uint32_t button;
     bool touch;
     float x, y;
+    bool drag;
+    float x2, y2;
+    int n;
 };
 std::vector<ScriptEvent> script;
 bool script_loaded = false;
@@ -136,6 +141,9 @@ void load_script() {
         if (rest.compare(0, 6, "touch:") == 0) {
             ev.touch = true;
             std::sscanf(rest.c_str() + 6, "%f:%f", &ev.x, &ev.y);
+        } else if (rest.compare(0, 5, "drag:") == 0) {
+            ev.touch = ev.drag = true;
+            std::sscanf(rest.c_str() + 5, "%f:%f:%f:%f:%d", &ev.x, &ev.y, &ev.x2, &ev.y2, &ev.n);
         } else {
             for (auto &n : names)
                 if (rest == n.first) ev.button = n.second;
@@ -150,6 +158,14 @@ void poll_input(Input &in) {
     if (!script_loaded) load_script();
     frame_counter++;
     for (const ScriptEvent &ev : script) {
+        if (ev.drag) {
+            if (frame_counter < ev.frame || frame_counter >= ev.frame + ev.n + 6) continue;
+            const float t = std::min(1.0f, (float)(frame_counter - ev.frame) / (float)std::max(1, ev.n));
+            in.touching = true;
+            in.touch_x = ev.x + (ev.x2 - ev.x) * t;
+            in.touch_y = ev.y + (ev.y2 - ev.y) * t;
+            continue;
+        }
         if (frame_counter < ev.frame || frame_counter >= ev.frame + 6) continue;
         if (ev.touch) {
             in.touching = true;

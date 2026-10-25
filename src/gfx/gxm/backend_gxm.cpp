@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "core/time.h"
 #include "gfx/backend.h"
 #include "platform/platform.h"
 
@@ -574,10 +575,12 @@ const uint16_t *quad_indices(const Vertex **full_quad) {
 
 void backend_submit(const FrameData &f) {
     Arena &A = g_arenas[g_arena];
+    const double w0 = time_now();
     if (A.pending) {
         sceGxmNotificationWait(&A.notif);
         A.pending = false;
     }
+    g_wait_gpu_ms = (float)((time_now() - w0) * 1000);
     if ((f.vertices.size() + 4 * f.occluders.size()) * sizeof(Vertex) > kArenaVertexBytes || f.indices.size() * 2 > kArenaIndexBytes)
         platform::fatal("frame too large: %u vertices", (unsigned)f.vertices.size());
     std::memcpy(A.vtx, f.vertices.data(), f.vertices.size() * sizeof(Vertex));
@@ -698,6 +701,7 @@ void backend_submit(const FrameData &f) {
             cur = nullptr;
             continue;
         }
+        if (g_skip_shaders & (1ull << (int)c.shader)) continue;  // dev: measure a shader by not running it
         const Program &P = g_progs[(int)c.shader];
         if (&P != cur) {
             sceGxmSetVertexProgram(g_ctx, P.vp);
@@ -735,7 +739,9 @@ void backend_submit(const FrameData &f) {
 
     sceGxmPadHeartbeat(&g_disp_surf[g_back], g_disp_sync[g_back]);
     DisplayData dd{g_disp_mem[g_back]};
+    const double q0 = time_now();
     sceGxmDisplayQueueAddEntry(g_disp_sync[g_front], g_disp_sync[g_back], &dd);
+    g_wait_queue_ms = (float)((time_now() - q0) * 1000);
     g_front = g_back;
     g_back = (g_back + 1) % kDisplayBuffers;
     g_arena = (g_arena + 1) % kFrameArenas;

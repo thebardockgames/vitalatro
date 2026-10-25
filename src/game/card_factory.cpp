@@ -164,10 +164,23 @@ void add_jokers(const std::string &keys) {
         std::string key = keys.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
         pos = comma == std::string::npos ? keys.size() : comma + 1;
         if (key.empty() || !G.P_CENTERS->get(Value(key)).truthy()) continue;
-        Card *card = create_card("Joker", G.jokers.get(), false, Value(), false, false, key);
+        const Value center = G.P_CENTERS->get(Value(key));
+        const bool consumable = center.get(K("consumeable")).truthy();
+        CardArea *area = consumable ? G.consumeables.get() : G.jokers.get();
+        Card *card = create_card(consumable ? center.get(K("set")).to_string() : "Joker", area, false, Value(), false, false, key);
         card->add_to_deck();
-        G.jokers->emplace(card);
+        area->emplace(card);
     }
+}
+
+void combo_setup(int hand_delta) {
+    for (auto &c : G.playing_cards) {
+        c->set_base(G.P_CARDS->get(K("S_K")));
+        c->set_ability(G.P_CENTERS->get(K("m_steel")));
+        c->set_seal(Value("Red"), true, true);
+    }
+    if (hand_delta) G.hand->change_size(hand_delta);
+    add_jokers("j_mime,j_blueprint,j_baron,j_brainstorm,j_sock_and_buskin");
 }
 
 }  // namespace vl

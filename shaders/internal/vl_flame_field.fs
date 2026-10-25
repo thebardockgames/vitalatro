@@ -15,6 +15,17 @@ extern MY_HIGHP_OR_MEDIUMP vec4 vl_flame_a;
 
 #define PIXEL_SIZE_FAC 60.
 
+// The swirl's 40 sin/cos per cell, as the cards' fast shaders: a parabolic sine (max error ~0.001).
+// The field is not chaotic: over 300 random (time, amount, id) the smoke_res > 1 test changes for
+// 0.02% of the cells against float64 (plain float32 already changes 0.004%), |d| <= 0.008, at
+// 398 instead of 687 cycles per cell on the Vita (2.5 ms of GPU for both flames before).
+MY_HIGHP_OR_MEDIUMP float vl_ffsin(MY_HIGHP_OR_MEDIUMP float x) {
+    MY_HIGHP_OR_MEDIUMP float t = fract(x * 0.15915494 + 0.5) * 2.0 - 1.0;
+    MY_HIGHP_OR_MEDIUMP float y = 4.0 * t * (1.0 - abs(t));
+    return 0.225 * (y * abs(y) - y) + y;
+}
+MY_HIGHP_OR_MEDIUMP float vl_ffcos(MY_HIGHP_OR_MEDIUMP float x) { return vl_ffsin(x + 1.5707963); }
+
 vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
 {
     MY_HIGHP_OR_MEDIUMP float time = vl_flame_a.x;
@@ -33,10 +44,11 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
 
     // (the original's (mod(float(i), 2.)>1.?-1.:1.) is always 1.: mod gives 0 or 1)
     for(int i=0; i < 5; i++) {
-        sv2 += sv + 0.05*sv2.yx + 0.3*(cos(length(sv)*0.411) + 0.3344*sin(length(sv)) - 0.23*cos(length(sv)));
+        MY_HIGHP_OR_MEDIUMP float l = length(sv);
+        sv2 += sv + 0.05*sv2.yx + 0.3*(vl_ffcos(l*0.411) + 0.3344*vl_ffsin(l) - 0.23*vl_ffcos(l));
         sv  += 0.5*vec2(
-                    cos(cos(sv2.y) + speed*0.0812)*sin(3.22 + (sv2.x) - speed*0.1531),
-                    sin(-sv2.x*1.21222 + 0.113785*speed)*cos(sv2.y*0.91213 - 0.13582*speed));
+                    vl_ffcos(vl_ffcos(sv2.y) + speed*0.0812)*vl_ffsin(3.22 + (sv2.x) - speed*0.1531),
+                    vl_ffsin(-sv2.x*1.21222 + 0.113785*speed)*vl_ffcos(sv2.y*0.91213 - 0.13582*speed));
     }
 
     MY_HIGHP_OR_MEDIUMP float smoke_res = max(0.,((length((sv - flame_up_vec)/scale_fac*5.)+ 0.1*(length(uv_scaled_centered) - 0.5))*(2./(2.+ intensity*0.2)))) ;

@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 
 #include "core/time.h"
@@ -328,6 +330,15 @@ Texture *create_texture(const TextureDesc &desc) {
     t->lw = (float)d.width / d.dpi_scale;
     t->lh = (float)d.height / d.dpi_scale;
     t->filter = d.filter;
+    if (!desc.alpha8 && !desc.half_float) {
+        t->opaque_w = desc.width;
+        t->opaque_h = desc.height;
+        t->opaque_words = (desc.width + 63) / 64;
+        t->opaque.assign((size_t)t->opaque_words * desc.height, 0);
+        for (int y = 0; y < desc.height; y++)
+            for (int x = 0; x < desc.width; x++)
+                if (desc.rgba[((size_t)y * desc.width + x) * 4 + 3] == 255) t->opaque[(size_t)y * t->opaque_words + x / 64] |= 1ull << (x % 64);
+    }
     backend_create_texture(t, d);
     return t;
 }
@@ -513,7 +524,15 @@ void merge_prepass() {
     P.reset();
 }
 
+float g_wait_gpu_ms = 0, g_wait_queue_ms = 0;
+uint64_t g_skip_shaders = 0;
+
 void end_frame() {
+    if (g_draw_debug) {
+        float area = 0;
+        for (const Occluder &o : F.occluders) area += (o.x1 - o.x0) * (o.y1 - o.y0);
+        std::fprintf(stderr, "  occluders %d, %.0fk px, cmds %d\n", (int)F.occluders.size(), area / 1000, (int)F.cmds.size());
+    }
     if (g_occlusion) propagate_occlusion();
     if (!P.cmds.empty()) merge_prepass();
     for (Canvas *c : canvas_pool.released) canvas_pool.free.push_back(c);
@@ -573,12 +592,101 @@ void send(ShaderId id, const char *name, const float *v, int n) {
     }
 }
 
+// Is every texel of the rectangle [x0, x1) x [y0, y1) (texture data pixels) opaque?
+bool texels_opaque(const Texture *t, int x0, int y0, int x1, int y1) {
+    if (x0 < 0 || y0 < 0 || x1 > t->opaque_w || y1 > t->opaque_h || x0 >= x1 || y0 >= y1) return false;
+    for (int y = y0; y < y1; y++) {
+        const uint64_t *row = &t->opaque[(size_t)y * t->opaque_words];
+        for (int x = x0; x < x1;) {
+            const int bit = x % 64, n = std::min(64 - bit, x1 - x);
+            const uint64_t want = (n == 64 ? ~0ull : ((1ull << n) - 1)) << bit;
+            if ((row[x / 64] & want) != want) return false;
+            x += n;
+        }
+    }
+    return true;
+}
+
+// An opaque sprite (a card face, drawn white with the default shader) occludes what was drawn
+// under it, like an opaque UI panel: the texels of its quad are inset until all of them are opaque
+// (cached per texture cell), 2 more for the filtering of the smaller atlas levels, and the screen
+// box inside that rectangle (which may be rotated: cards in a fanned hand) is the occluder.
+bool sprite_occluder(Texture *t, const Quad &q, const Affine &m, float r[4]) {
+    if (t->opaque.empty() || q.sw <= 0 || q.sh <= 0) return false;
+    const float kx = t->opaque_w / q.sw, ky = t->opaque_h / q.sh;
+    const int x0 = (int)std::lround(q.x * kx), y0 = (int)std::lround(q.y * ky), x1 = (int)std::lround((q.x + q.w) * kx),
+              y1 = (int)std::lround((q.y + q.h) * ky);
+    struct Key {
+        const Texture *t;
+        int x0, y0, x1, y1;
+        bool operator==(const Key &o) const { return t == o.t && x0 == o.x0 && y0 == o.y0 && x1 == o.x1 && y1 == o.y1; }
+    };
+    struct Hash {
+        size_t operator()(const Key &k) const { return std::hash<const void *>()(k.t) ^ ((size_t)k.x0 * 73856093u) ^ ((size_t)k.y0 * 19349663u) ^ ((size_t)k.x1 * 83492791u) ^ (size_t)k.y1; }
+    };
+    static std::unordered_map<Key, int, Hash> inset_cache;  // texels of inset, -1 = never opaque
+    auto it = inset_cache.find({t, x0, y0, x1, y1});
+    int d;
+    if (it != inset_cache.end()) {
+        d = it->second;
+    } else {
+        int lo = 0, hi = std::min(x1 - x0, y1 - y0) * 9 / 20;  // smallest opaque inset in (lo, hi]
+        if (hi < 4 || !texels_opaque(t, x0 + hi, y0 + hi, x1 - hi, y1 - hi)) {
+            d = -1;
+        } else {
+            while (hi - lo > 1) {
+                int mid = (lo + hi) / 2;
+                if (texels_opaque(t, x0 + mid, y0 + mid, x1 - mid, y1 - mid)) hi = mid;
+                else lo = mid;
+            }
+            d = hi + 2;
+            if (x1 - x0 - 2 * d < 4 || y1 - y0 - 2 * d < 4) d = -1;
+        }
+        inset_cache[{t, x0, y0, x1, y1}] = d;
+    }
+    if (d < 0) return false;
+    // the opaque rectangle's corners on screen, in outline order
+    const float ix = d / kx, iy = d / ky;
+    const Vec2 p[4] = {m.apply(ix, iy), m.apply(q.w - ix, iy), m.apply(q.w - ix, q.h - iy), m.apply(ix, q.h - iy)};
+    float xs[4] = {p[0].x, p[1].x, p[2].x, p[3].x}, ys[4] = {p[0].y, p[1].y, p[2].y, p[3].y};
+    std::sort(xs, xs + 4);
+    std::sort(ys, ys + 4);
+    auto inside = [&](float px, float py) {
+        float sign = 0;
+        for (int i = 0; i < 4; i++) {
+            const Vec2 &a = p[i], &b = p[(i + 1) % 4];
+            const float cr = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+            if (sign == 0) sign = cr;
+            else if ((cr > 0) != (sign > 0) && cr != 0) return false;
+        }
+        return true;
+    };
+    // the box between the middle coordinates (exact for an unrotated sprite), shrunk about its
+    // centre until all its corners lie inside, then snapped inwards to whole pixels
+    const float cx = (xs[1] + xs[2]) * 0.5f, cy = (ys[1] + ys[2]) * 0.5f;
+    float hw = (xs[2] - xs[1]) * 0.5f, hh = (ys[2] - ys[1]) * 0.5f;
+    for (int k = 0;; k++) {
+        r[0] = std::ceil(cx - hw), r[1] = std::ceil(cy - hh), r[2] = std::floor(cx + hw), r[3] = std::floor(cy + hh);
+        if (r[2] - r[0] < 16 || r[3] - r[1] < 16) return false;
+        if (inside(r[0], r[1]) && inside(r[2], r[1]) && inside(r[2], r[3]) && inside(r[0], r[3])) break;
+        if (k == 6) return false;
+        hw *= 0.9f, hh *= 0.9f;
+    }
+    const float tw = (float)(S.canvas ? S.canvas->w : backend_screen_width()), th = (float)(S.canvas ? S.canvas->h : backend_screen_height());
+    r[0] = std::max(r[0], 0.f), r[1] = std::max(r[1], 0.f), r[2] = std::min(r[2], tw), r[3] = std::min(r[3], th);
+    return r[2] - r[0] >= 16 && r[3] - r[1] >= 16 && (r[2] - r[0]) * (r[3] - r[1]) >= 1024;
+}
+
 void draw(Texture *t, const Quad &q, float x, float y, float r, float sx, float sy, float ox,
           float oy) {
     uint16_t *idx;
     Vertex *v;
-    uint16_t base = begin_draw(t, 4, 6, &idx, &v);
     Affine m = top() * Affine::from_transformation(x, y, r, sx, sy, ox, oy);
+    float occ_r[4];
+    const bool occ = g_occlusion && S.shader == ShaderId::Default && S.color.r == 1 && S.color.g == 1 && S.color.b == 1 &&
+                     S.color.a == 1 && sprite_occluder(t, q, m, occ_r);
+    uint16_t base = begin_draw(t, 4, 6, &idx, &v, occ);
+    if (occ) F.occluders.push_back({(uint32_t)F.cmds.size() - 1, occ_r[0], occ_r[1], occ_r[2], occ_r[3]});
     uint32_t col = S.color.packed();
     float u0 = q.x / q.sw, v0 = q.y / q.sh, u1 = (q.x + q.w) / q.sw, v1 = (q.y + q.h) / q.sh;
     Vec2 p0 = m.apply(0, 0), p1 = m.apply(0, q.h), p2 = m.apply(q.w, 0), p3 = m.apply(q.w, q.h);

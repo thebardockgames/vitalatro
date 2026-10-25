@@ -26,5 +26,7 @@ void register_card_ui_callbacks();
 class UIBox;
 UIBox *card_focus_ui(Card *card);
 void realign_focused_ui(Card *card);
+// the size of the focus buttons (1, or 1.4 with large menus on)
+double focus_button_scale();
 
 }  // namespace vl

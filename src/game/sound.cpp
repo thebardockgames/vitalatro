@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "audio/mixer.h"
+#include "game/blind.h"
 #include "game/g.h"
 #include "platform/platform.h"
 
@@ -279,7 +280,17 @@ void modulate_sound(double dt) {
     Value hand = fld(fld(G.GAME->get(K("current_round")), "current_hand"), "chips");
     Value mult = fld(fld(G.GAME->get(K("current_round")), "current_hand"), "mult");
     double earned_score = hand.is_num() && mult.is_num() ? hand.num() * mult.num() : 0;
-    double required_score = blind.truthy() ? fld(blind, "chips").num() : 0;
+    const Blind *bl = blind.as<Blind>();  // a Blind object: chips is a C++ field
+    double required_score = bl ? bl->chips : 0;
+    // G.ARGS.score_intensity: flame_handler reads these, so its flames lag the score by one
+    // frame like the original's (this runs before the frame's events)
+    Value si = G.ARGS->get(K("score_intensity"));
+    if (!si.is_table()) {
+        si = Value(T({}));
+        G.ARGS->set(K("score_intensity"), si);
+    }
+    si.table()->set("earned_score", earned_score);
+    si.table()->set("required_score", required_score);
     Value chip_flames = G.ARGS->get(K("chip_flames")), mult_flames = G.ARGS->get(K("mult_flames"));
     double flames = std::min(1.0, (G.STAGE == RUN ? 1 : 0) *
                                       (chip_flames.truthy() ? fld(chip_flames, "real_intensity").num() + fld(chip_flames, "change").num()

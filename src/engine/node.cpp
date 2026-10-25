@@ -51,6 +51,7 @@ void Node::init(const Args &args) {
     hover_offset = {};
     created_on_pause = G.paused();
     ID = G.ID++;
+    if (G.id_detail_log) G.id_detail_log->push_back(NodeRef(this));
     FRAME.DRAW = -1;
     FRAME.MOVE = -1;
     states = States{};

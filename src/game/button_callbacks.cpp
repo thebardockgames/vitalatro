@@ -13,6 +13,7 @@
 #include "engine/ui.h"
 #include "game/card.h"
 #include "game/card_ui.h"
+#include "game/shop.h"
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/state_events.h"
@@ -655,6 +656,9 @@ void register_button_callbacks() {
     auto &F = G.FUNCS;
     register_run_callbacks();
     register_card_ui_callbacks();
+    register_shop_callbacks();
+    register_consumable_callbacks();
+    register_booster_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
     F["options"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);

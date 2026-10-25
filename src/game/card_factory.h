@@ -28,5 +28,8 @@ void playing_card_joker_effects(const std::vector<Card *> &cards);
 // tests and the dev server: create_card('Joker', G.jokers, nil, nil, nil, nil, key), add_to_deck and
 // emplace, for each key of a comma separated list
 void add_jokers(const std::string &keys);
+// the stress test (a naneinf build): every playing card becomes a Steel King of Spades with a Red
+// Seal, the hand grows by hand_delta and Mime, Blueprint, Baron, Brainstorm, Sock and Buskin join
+void combo_setup(int hand_delta);
 
 }  // namespace vl

@@ -193,7 +193,7 @@ void inject(platform::Input &in) {
 // ------------------------------------------------------------------ perf sampling
 struct Perf {
     int frames = 0, slow = 0;
-    double t = 0, dt_max = 0, upd = 0, upd_max = 0, draw = 0, draw_max = 0, submit = 0, submit_max = 0;
+    double t = 0, dt_max = 0, upd = 0, upd_max = 0, draw = 0, draw_max = 0, submit = 0, submit_max = 0, wgpu = 0, wgpu_max = 0, wq = 0, wq_max = 0;
     gfx::FrameStats worst{};
 } g_perf;
 
@@ -225,9 +225,10 @@ std::string perf_report() {
     std::snprintf(buf, sizeof buf,
                   "%.1f fps over %.2f s (%d frames, %d over 17.5 ms), worst %.1f ms\n"
                   "cpu update %.2f (max %.2f) draw %.2f (max %.2f) submit %.2f (max %.2f) ms\n"
+                  "blocked on gpu %.2f (max %.2f) display queue %.2f (max %.2f) ms\n"
                   "state %d stage %d | free MB ram %d cdram %d\n",
                   p.frames / std::max(1e-9, p.t), p.t, p.frames, p.slow, p.dt_max * 1000, p.upd / n, p.upd_max, p.draw / n, p.draw_max,
-                  p.submit / n, p.submit_max, G.STATE, G.STAGE, ram, cdram);
+                  p.submit / n, p.submit_max, p.wgpu / n, p.wgpu_max, p.wq / n, p.wq_max, G.STATE, G.STAGE, ram, cdram);
     return std::string(buf) + "last frame " + gpu_line(gfx::last_frame_stats()) + "\nworst frame " + gpu_line(p.worst) + "\n";
 }
 
@@ -300,12 +301,32 @@ void run_command(Request *r) {
         // a seeded run, as VL_RUN does on PC: G.FUNCS.start_run(nil, {seed = seed, stake = 1})
         TableRef args = vl::T({{"stake", a.size() > 1 ? std::atof(a[1].c_str()) : 1.0}});
         if (!a.empty()) args->set("seed", Value(a[0]));
+        // run <seed> <stake> <deck key>: that deck, as picked on the run setup screen
+        if (a.size() > 2 && G.P_CENTERS->get(Value(a[2])).truthy())
+            G.GAME->set("viewed_back", Value((Object *)new Back(G.P_CENTERS->get(Value(a[2])))));
         start_run_with(nullptr, args);
         finish(r, true, "");
     } else if (c == "joker") {
         // joker <key>[,<key>...]: as the tests' VL_JOKERS
         if (!G.jokers) return finish(r, false, "no run");
         add_jokers(join(a, 0));
+        finish(r, true, "");
+    } else if (c == "skip") {
+        // skip [shader...]: the GPU stops running those shaders' draws (no args: run them all again)
+        uint64_t mask = 0;
+        for (const std::string &name : a) {
+            int found = -1;
+            for (int i = 0; i < (int)gfx::ShaderId::Count; i++)
+                if (name == gfx::shader_info((gfx::ShaderId)i).name) found = i;
+            if (found < 0) return finish(r, false, "unknown shader " + name);
+            mask |= 1ull << found;
+        }
+        gfx::g_skip_shaders = mask;
+        finish(r, true, "");
+    } else if (c == "combo") {
+        // combo [hand size delta]: the naneinf stress test (combo_setup), before drawing the hand
+        if (!G.jokers) return finish(r, false, "no run");
+        combo_setup(a.empty() ? 44 : std::atoi(a[0].c_str()));
         finish(r, true, "");
     } else if (c == "menu") {
         G.FUNCS["go_to_menu"](nullptr);
@@ -413,6 +434,8 @@ void frame_end(const FrameTimes &t) {
         p.upd += t.update, p.upd_max = std::max(p.upd_max, t.update);
         p.draw += t.draw, p.draw_max = std::max(p.draw_max, t.draw);
         p.submit += t.submit, p.submit_max = std::max(p.submit_max, t.submit);
+        p.wgpu += gfx::g_wait_gpu_ms, p.wgpu_max = std::max(p.wgpu_max, (double)gfx::g_wait_gpu_ms);
+        p.wq += gfx::g_wait_queue_ms, p.wq_max = std::max(p.wq_max, (double)gfx::g_wait_queue_ms);
         if (p.t >= g_wait_secs) done(true, perf_report());
         break;
     }

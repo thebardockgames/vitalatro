@@ -1,5 +1,6 @@
 #pragma once
 // Interface between the API-agnostic recorder (gfx.cpp) and a GPU backend (GXM or GL).
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,6 +16,10 @@ struct Texture {
     Filter filter = Filter::Linear;
     bool is_canvas = false;
     void *impl = nullptr;
+    // which texels of the uploaded (pre-upscale) data have alpha 255, one bit each, rows of
+    // opaque_words 64-bit words; empty for fonts, half-float data and canvases
+    std::vector<uint64_t> opaque;
+    int opaque_w = 0, opaque_h = 0, opaque_words = 0;
 };
 
 struct Canvas {
@@ -76,6 +81,11 @@ bool backend_texture_thread_safe();
 void backend_destroy_texture(Texture *t);
 void backend_create_canvas(Canvas *c);
 void backend_submit(const FrameData &f);  // render everything, then present
+// time the last backend_submit spent blocked: on the GPU (a frame arena still in use) and on the
+// display queue (no free display buffer); 0 on backends without them
+extern float g_wait_gpu_ms, g_wait_queue_ms;
+// dev: draws of these shaders (bit = ShaderId) are skipped by the backend, to measure their GPU cost
+extern uint64_t g_skip_shaders;
 void backend_read_screen(std::vector<uint8_t> &out);  // last presented frame, RGBA top-down
 // Dev server: replaces compiled shader files (by name, e.g. "flame_f") and rebuilds every program.
 // Returns "" or what went wrong (nothing is replaced then).

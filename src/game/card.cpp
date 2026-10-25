@@ -15,6 +15,7 @@
 #include "game/card_ui.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/shop.h"
 #include "game/state_events.h"
 #include "game/ui_definitions.h"
 #include "game/sound.h"
@@ -499,6 +500,21 @@ void Card::set_seal(const Value &s, bool silent, bool immediate) {
 Value Card::get_seal(bool bypass_debuff) const {
     if (debuff && !bypass_debuff) return Value();
     return seal;
+}
+
+void Card::change_suit(const std::string &new_suit) {
+    const Value value = base->get(K("value"));
+    static const std::pair<const char *, const char *> suit_prefix[] = {{"Spades", "S_"}, {"Hearts", "H_"}, {"Diamonds", "D_"}, {"Clubs", "C_"}};
+    static const std::pair<const char *, const char *> rank_suffix[] = {{"2", "2"},  {"3", "3"},  {"4", "4"},  {"5", "5"},     {"6", "6"},
+                                                                        {"7", "7"},  {"8", "8"},  {"9", "9"},  {"10", "T"},    {"Jack", "J"},
+                                                                        {"Queen", "Q"}, {"King", "K"}, {"Ace", "A"}};
+    std::string prefix, suffix;
+    for (auto &p : suit_prefix)
+        if (new_suit == p.first) prefix = p.second;
+    for (auto &p : rank_suffix)
+        if (value.equals(p.first)) suffix = p.second;
+    set_base(G.P_CARDS->get(Value(prefix + suffix)));
+    if (Blind *b = G.GAME->get(K("blind")).as<Blind>()) b->debuff_card(this);
 }
 
 void Card::set_debuff(bool should_debuff) {
@@ -1004,7 +1020,16 @@ void Card::update(double) {
                 if (j->ability->get(K("name")).equals("Joker Stencil")) x += 1;
             ability->set("x_mult", x);
         }
-        // (The Wheel of Fortune / Ectoplasm / Hex: their eligible joker lists are built where they are used)
+        if (name == "The Wheel of Fortune") {
+            eligible_strength_jokers.clear();
+            for (auto &v : G.jokers->cards)
+                if (v->ability->get(K("set")).equals("Joker") && !v->edition) eligible_strength_jokers.push_back(v);
+        }
+        if (name == "Ectoplasm" || name == "Hex") {
+            eligible_editionless_jokers.clear();
+            for (auto &v : G.jokers->cards)
+                if (v->ability->get(K("set")).equals("Joker") && !v->edition) eligible_editionless_jokers.push_back(v);
+        }
         if (name == "Blueprint" || name == "Brainstorm") {
             Card *other = nullptr;
             if (name == "Brainstorm") {
@@ -1673,7 +1698,12 @@ void CardArea::draw() {
             }
             TableRef inner = new_table();
             if (sv) {
-                // TODO(run): the shop voucher area's 'DEFEAT BOSS BLIND TO RESTOCK' placeholder (func shop_voucher_empty)
+                auto line = [&](const char *text, double scale) {
+                    return nd(UIT_R, vl::T({{"align", "cm"}}), A({nd(UIT_T, vl::T({{"text", text}, {"scale", scale}, {"colour", G.colour("WHITE")}}))}));
+                };
+                // (the original's config says `paddin`: no padding)
+                inner->push(nd(UIT_C, vl::T({{"align", "cm"}, {"paddin", 0.1}, {"func", "shop_voucher_empty"}, {"visible", false}}),
+                               A({line("DEFEAT", 0.6), line("BOSS BLIND", 0.4), line("TO RESTOCK", 0.4)})));
             }
             TableRef rcfg = vl::T({{"minw", T->w}, {"minh", T->h}, {"align", "cm"}, {"padding", 0.1}, {"mid", true}, {"r", 0.1}, {"ref_table", Value((Object *)this)}});
             if (!sv) rcfg->set("colour", Value(A({0, 0, 0, 0.1})));
@@ -1731,7 +1761,49 @@ void CardArea::draw() {
         }
     }
     if (G.deck && this == G.deck.get()) {
-        // TODO(run): peek_deck / view_deck UIBoxes
+        auto nd = [](int uit, TableRef cfg, TableRef nodes = nullptr) {
+            TableRef t = vl::T({{"n", (double)uit}, {"config", Value(cfg)}});
+            if (nodes) t->set("nodes", Value(nodes));
+            return Value(t);
+        };
+        auto text = [&](const Value &s, double scale) {
+            return nd(UIT_T, vl::T({{"text", s}, {"scale", scale}, {"colour", G.colour("WHITE")}, {"shadow", true}}));
+        };
+        const bool ctrl = G.CONTROLLER->HID.controller;
+        if (ctrl && G.STATE == SELECTING_HAND && !children.get("peek_deck")) {
+            UIBox *pk = new UIBox(
+                TableRef(nd(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0.1}, {"r", 0.1}, {"colour", G.colour("CLEAR")}}),
+                            A({nd(UIT_R,
+                                  vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", Value(adjust_alpha(G.colour("L_BLACK"), 0.5f))}, {"func", "set_button_pip"},
+                                         {"focus_args", Value(vl::T({{"button", "triggerleft"}, {"orientation", "bm"}, {"scale", 0.6}, {"type", "none"}}))}}),
+                                  A({nd(UIT_R, vl::T({{"align", "cm"}}), A({text(Value("PEEK"), 0.48)})),
+                                     nd(UIT_R, vl::T({{"align", "cm"}}), A({text(Value("DECK"), 0.38)}))}))}))
+                    .table()),
+                vl::T({{"align", "cl"}, {"offset", Value(vl::T({{"x", -0.5}, {"y", 0.1}}))}, {"major", Value((Object *)this)}, {"parent", Value((Object *)this)}}));
+            pk->states.collide.can = false;
+            children.set("peek_deck", pk);
+        } else if ((!ctrl || G.STATE != SELECTING_HAND) && children.get("peek_deck")) {
+            children.get("peek_deck")->remove();
+            children.set("peek_deck", nullptr);
+        }
+        if (!children.get("view_deck")) {
+            Object *major = cards.empty() ? (Object *)this : (Object *)cards[0].get();
+            UIBox *vd = new UIBox(
+                TableRef(nd(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0.1}, {"r", 0.1}, {"colour", G.colour("CLEAR")}}),
+                            A({nd(UIT_R,
+                                  vl::T({{"align", "cm"}, {"padding", 0.05}, {"r", 0.1}, {"colour", Value(adjust_alpha(G.colour("BLACK"), 0.5f))}, {"func", "set_button_pip"},
+                                         {"focus_args", Value(vl::T({{"button", "triggerright"}, {"orientation", "bm"}, {"scale", 0.6}}))}, {"button", "deck_info"}}),
+                                  A({nd(UIT_R, vl::T({{"align", "cm"}, {"maxw", 2}}), A({text(localize("k_view"), 0.48)})),
+                                     nd(UIT_R, vl::T({{"align", "cm"}, {"maxw", 2}}), A({text(localize("k_deck"), 0.38)}))}))}))
+                    .table()),
+                vl::T({{"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}, {"major", Value(major)}, {"parent", Value((Object *)this)}}));
+            vd->states.collide.can = false;
+            children.set("view_deck", vd);
+        }
+        auto *buttons = dynamic_cast<UIBox *>(G.buttons.get());
+        if (G.deck_preview || (!under_overlay && states.collide.is) || (buttons && !buttons->under_overlay && buttons->states.collide.is && ctrl))
+            children.get("view_deck")->draw();
+        if (Node *pk = children.get("peek_deck")) pk->draw();
     }
 }
 
@@ -2001,19 +2073,59 @@ void Back::apply_to_run() {
     if (c("voucher").truthy()) {
         game->get(K("used_vouchers")).table()->set(c("voucher"), true);
         game->set("starting_voucher_count", game->get(K("starting_voucher_count")).num() + 1);
-        // TODO(run): Card.apply_to_run(nil, G.P_CENTERS[voucher])
+        card_apply_to_run(nullptr, G.P_CENTERS->get(c("voucher")));
     }
     if (c("hands").truthy()) sp->set("hands", sp->get(K("hands")).num() + c("hands").num());
     if (c("consumables").truthy()) {
         delay(0.4);
-        // TODO(run): create_card('Tarot', G.consumeables, ...) for each starting consumable
+        Value list = c("consumables");
+        G.E_MANAGER->add_event(ev_immediate([list] {
+            for (int i = 1; i <= list.table()->len(); i++) {
+                Card *card = create_card("Tarot", G.consumeables.get(), false, Value(), false, false, list.table()->get(i).to_string(), "deck");
+                card->add_to_deck();
+                G.consumeables->emplace(card);
+            }
+            return true;
+        }));
     }
     if (c("dollars").truthy()) sp->set("dollars", sp->get(K("dollars")).num() + c("dollars").num());
     if (c("remove_faces").truthy()) sp->set("no_faces", true);
     if (c("spectral_rate").truthy()) game->set("spectral_rate", c("spectral_rate"));
     if (c("discards").truthy()) sp->set("discards", sp->get(K("discards")).num() + c("discards").num());
     if (c("reroll_discount").truthy()) sp->set("reroll_cost", sp->get(K("reroll_cost")).num() - c("reroll_discount").num());
-    // TODO(run): edition decks, voucher lists, Checkered Deck's suit change
+    if (c("edition").truthy()) {
+        const Value ed = c("edition"), count = c("edition_count");
+        G.E_MANAGER->add_event(ev_immediate([ed, count] {
+            int i = 0;
+            TableRef pcs = new_table();
+            for (auto &pc : G.playing_cards) pcs->push(Value((Object *)pc.get()));
+            while (i < count.num()) {
+                double seed = pseudoseed("edition_deck");
+                Card *card = pseudorandom_element(Value(pcs), &seed).as<Card>();
+                if (!card->edition) {
+                    i++;
+                    TableRef e = new_table();
+                    e->set(ed, true);
+                    card->set_edition(Value(e), false, true);
+                }
+            }
+            return true;
+        }));
+    }
+    if (Table *vs = c("vouchers").table())
+        vs->each([&](const Value &, const Value &v) {
+            game->get(K("used_vouchers")).table()->set(v, true);
+            game->set("starting_voucher_count", game->get(K("starting_voucher_count")).num() + 1);
+            card_apply_to_run(nullptr, G.P_CENTERS->get(v));
+        });
+    if (name == "Checkered Deck")
+        G.E_MANAGER->add_event(ev_immediate([] {
+            for (auto &v : std::vector<CardRef>(G.playing_cards)) {
+                if (v->base->get(K("suit")).equals("Clubs")) v->change_suit("Spades");
+                if (v->base->get(K("suit")).equals("Diamonds")) v->change_suit("Hearts");
+            }
+            return true;
+        }));
     if (c("randomize_rank_suit").truthy()) sp->set("erratic_suits_and_ranks", true);
     if (c("joker_slot").truthy()) sp->set("joker_slots", sp->get(K("joker_slots")).num() + c("joker_slot").num());
     if (c("hand_size").truthy()) sp->set("hand_size", sp->get(K("hand_size")).num() + c("hand_size").num());

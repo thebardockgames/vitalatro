@@ -190,7 +190,7 @@ float shader_cycles(ShaderId id) {
         if (id == ShaderId::VlDmNegativeShine) return 89.f;
         if (id == ShaderId::VlDmPolychrome) return 156.f;
         if (id == ShaderId::VlDissolveField) return 124.f;
-        if (id == ShaderId::VlFlameField) return 915.f;
+        if (id == ShaderId::VlFlameField) return 570.f;
         if (id == ShaderId::VlFlame) return 30.f;
         if (id == ShaderId::VlDmHologram) return 103.f;
         if (id >= ShaderId::VlDmFoil && id <= ShaderId::VlDmHologram) return 150.f;

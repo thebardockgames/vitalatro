@@ -426,11 +426,13 @@ void AnimatedSprite::get_pos_pixel(float out[4]) const {
     out[3] = animation.h;
 }
 
-void AnimatedSprite::draw_self(const float *) {
+void AnimatedSprite::draw_self(const float *overlay) {
     if (!states.visible) return;
     prep_draw(this, 1);
     gfx::scale(1 / scale_mag);
-    gfx::set_color({1, 1, 1, 1});
+    // the original always draws white; `overlay` only comes from draw_shader's shortcut for
+    // dissolve.fs at dissolve 0 (the shadow step's (0, 0, 0, 0.3) is what that shader outputs)
+    gfx::set_color(overlay ? Color{overlay[0], overlay[1], overlay[2], overlay[3]} : Color{1, 1, 1, 1});
     gfx::draw(atlas->image, quad, 0, 0, 0, VT.w / T->w, VT.h / T->h);
     gfx::pop();
 }

@@ -9,6 +9,7 @@
 #include "engine/ui.h"
 #include "core/lua_sort.h"
 #include "game/card.h"
+#include "game/shop.h"
 #include "game/button_callbacks.h"
 #include "game/g.h"
 
@@ -307,7 +308,7 @@ void Controller::update(double dt) {
         if (touch_control.l_pressed) hovering.target = finger_focus;
 
         if (!dragging.handled && cursor_down.has_duration && cursor_down.duration > 0.1) {
-            // TODO(cards): create_drag_target_from_card(dragging.target)
+            create_drag_target_from_card(dragging.target && dragging.target->is_card() ? static_cast<Card *>(dragging.target.get()) : nullptr);
             dragging.handled = true;
         }
         if (dragging.target) dragging.target->drag();

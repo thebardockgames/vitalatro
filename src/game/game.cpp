@@ -17,6 +17,7 @@
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/blind.h"
+#include "game/shop.h"
 #include "game/state_events.h"
 #include "game/tag.h"
 #include "game/render.h"
@@ -686,7 +687,7 @@ void Globals::delete_run() {
             objs[i]->remove();
         }
         for (NodeRef *n : {&buttons, &deck_preview, &shop, &blind_select, &booster_pack, &MAIN_MENU_UI, &GAME_OVER_UI,
-                           &collection_alert, &HUD, &HUD_blind, &round_eval, &blind_prompt_box})
+                           &collection_alert, &HUD, &HUD_blind, &round_eval, &blind_prompt_box, &SHOP_SIGN})
             if (*n) {
                 (*n)->remove();
                 *n = nullptr;
@@ -942,7 +943,7 @@ void Globals::start_run(const TableRef &args_in) {
     TableRef args = args_in ? args_in : new_table();
     // TODO(run): continuing a saved run (args.savetext)
     G_TABLE->set("SAVED_GAME", Value());
-    prep_stage(RUN, BLIND_SELECT, true);
+    prep_stage(RUN, BLIND_SELECT, false);
     STAGE = RUN;
     STATE_COMPLETE = false;
     RESET_BLIND_STATES = true;
@@ -1301,19 +1302,7 @@ void Globals::update_round_eval(double) {
     }));
 }
 
-// TODO(run): the shop (hito 4). Until then, leaving the round goes straight back to the blind
-// choice, as G.FUNCS.toggle_shop does when the shop closes.
-void Globals::update_shop(double) {
-    if (STATE_COMPLETE) return;
-    STATE_COMPLETE = true;
-    stop_use();
-    ease_background_colour_blind(SHOP);
-    E_MANAGER->add_event(ev_after(0.5, [] {
-        G.STATE_COMPLETE = false;
-        G.STATE = BLIND_SELECT;
-        return true;
-    }));
-}
+void Globals::update_shop(double) { shop_update(); }
 
 // TODO(run): create_UIBox_game_over (hito 5). For now: the sounds, then back to the main menu.
 void Globals::update_game_over(double) {
@@ -1579,8 +1568,12 @@ void Globals::update(double dt) {
             update_selecting_hand(dt);
         }
     }
-    // TODO(run): play tarot, packs
     if (STATE == SHOP) update_shop(dt);
+    if (STATE == PLAY_TAROT && buttons) {
+        buttons->remove();  // Game:update_play_tarot
+        buttons = nullptr;
+    }
+    if (STATE == TAROT_PACK || STATE == SPECTRAL_PACK || STATE == STANDARD_PACK || STATE == BUFFOON_PACK || STATE == PLANET_PACK) pack_update(STATE);
     if (STATE == HAND_PLAYED) update_hand_played(dt);
     if (STATE == NEW_ROUND) update_new_round(dt);
     if (STATE == ROUND_EVAL) update_round_eval(dt);
