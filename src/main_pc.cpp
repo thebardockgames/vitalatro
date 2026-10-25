@@ -127,6 +127,13 @@ int main(int argc, char **argv) {
             size_t eq = kv.find('=');
             if (eq != std::string::npos) vl::G.GAME->set(vl::Value(kv.substr(0, eq)), std::atof(kv.c_str() + eq + 1));
         }
+        // VL_PROFILE_SET="frame:key=number": the current profile's key = number (test hook)
+        if (const char *ps = std::getenv("VL_PROFILE_SET"); ps && std::strchr(ps, ':') && std::atoi(ps) == f) {
+            std::string kv = std::strchr(ps, ':') + 1;
+            size_t eq = kv.find('=');
+            if (eq != std::string::npos)
+                vl::G.PROFILES->get(vl::G.SETTINGS->get(vl::Value("profile"))).table()->set(vl::Value(kv.substr(0, eq)), std::atof(kv.c_str() + eq + 1));
+        }
         // VL_DOLLARS="frame:n": G.GAME.dollars = n at that frame (test hook)
         if (const char *d = std::getenv("VL_DOLLARS"); d && std::strchr(d, ':') && std::atoi(d) == f)
             vl::G.GAME->set("dollars", std::atof(std::strchr(d, ':') + 1));

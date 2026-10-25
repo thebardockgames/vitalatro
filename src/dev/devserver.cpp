@@ -229,7 +229,11 @@ std::string perf_report() {
                   "state %d stage %d | free MB ram %d cdram %d\n",
                   p.frames / std::max(1e-9, p.t), p.t, p.frames, p.slow, p.dt_max * 1000, p.upd / n, p.upd_max, p.draw / n, p.draw_max,
                   p.submit / n, p.submit_max, p.wgpu / n, p.wgpu_max, p.wq / n, p.wq_max, G.STATE, G.STAGE, ram, cdram);
-    return std::string(buf) + "last frame " + gpu_line(gfx::last_frame_stats()) + "\nworst frame " + gpu_line(p.worst) + "\n";
+    char dp[256];
+    const double *d = G.draw_prof;
+    std::snprintf(dp, sizeof dp, "draw: background %.2f nodes %.2f uiboxes %.2f areas+cards %.2f texts %.2f overlay %.2f ms\n", d[0] / n, d[1] / n, d[2] / n,
+                  d[3] / n, d[4] / n, d[5] / n);
+    return std::string(buf) + dp + "last frame " + gpu_line(gfx::last_frame_stats()) + "\nworst frame " + gpu_line(p.worst) + "\n";
 }
 
 // ------------------------------------------------------------------ commands
@@ -263,6 +267,7 @@ void run_command(Request *r) {
         finish(r, true, buf);
     } else if (c == "perf") {
         g_perf = Perf{};
+        for (double &v : G.draw_prof) v = 0;
         g_wait_secs = a.empty() ? 2.0 : std::atof(a[0].c_str());
         g_pending = r;
         g_wait = Wait::Perf;

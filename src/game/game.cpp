@@ -15,8 +15,11 @@
 #include "game/button_callbacks.h"
 #include "game/card.h"
 #include "game/functions.h"
+#include "core/time.h"
 #include "game/g.h"
 #include "game/blind.h"
+#include "game/card_factory.h"
+#include "game/challenges.h"
 #include "game/shop.h"
 #include "game/state_events.h"
 #include "game/tag.h"
@@ -964,6 +967,7 @@ void Globals::start_run(const TableRef &args_in) {
     Value sb = (GAME->get(K("viewed_back")).truthy() ? fld(GAME->get(K("viewed_back")).as<Back>() ? Value(GAME->get(K("viewed_back")).as<Back>()->name) : Value(), "") : Value());
     Value selected_back_name;
     if (loading) selected_back_name = fld(fld(save, "BACK"), "name");
+    else if (fld(fld(args->get(K("challenge")), "deck"), "type").truthy()) selected_back_name = fld(fld(args->get(K("challenge")), "deck"), "type");
     else if (Back *vb = GAME->get(K("viewed_back")).as<Back>()) selected_back_name = Value(vb->name);
     else if (Back *b = GAME->get(K("selected_back")).as<Back>()) selected_back_name = Value(b->name);
     else selected_back_name = Value("Red Deck");
@@ -996,7 +1000,74 @@ void Globals::start_run(const TableRef &args_in) {
     if (stake >= 7) mods->set("enable_perishables_in_shop", true);
     if (stake >= 8) mods->set("enable_rentals_in_shop", true);
     GAME->get(K("selected_back")).as<Back>()->apply_to_run();
-    // TODO(run): challenges (args.challenge)
+    if (const Value ch = args->get(K("challenge")); ch.truthy()) {
+        GAME->set("challenge", fld(ch, "id"));
+        GAME->set("challenge_tab", ch);
+        if (Table *j = fld(ch, "jokers").table())
+            for (int k = 1; k <= j->len(); k++) {
+                const Value v = j->get(k);
+                const bool silent = k != 1;
+                E_MANAGER->add_event(ev_immediate([v, silent] {
+                    Card *joker = add_joker(fld(v, "id").to_string(), fld(v, "edition"), silent);
+                    if (fld(v, "eternal").truthy()) joker->set_eternal(true);
+                    if (fld(v, "pinned").truthy()) joker->pinned = true;
+                    return true;
+                }));
+            }
+        if (Table *c = fld(ch, "consumeables").table())
+            for (int k = 1; k <= c->len(); k++) {
+                const Value v = c->get(k);
+                const bool silent = k != 1;
+                E_MANAGER->add_event(ev_immediate([v, silent] {
+                    add_joker(fld(v, "id").to_string(), Value(), silent);
+                    return true;
+                }));
+            }
+        if (Table *vs = fld(ch, "vouchers").table())
+            for (int k = 1; k <= vs->len(); k++) {
+                const Value id = fld(vs->get(k), "id");
+                GAME->get(K("used_vouchers")).table()->set(id, true);
+                E_MANAGER->add_event(ev_immediate([id] {
+                    G.GAME->set("starting_voucher_count", G.GAME->get(K("starting_voucher_count")).num() + 1);
+                    card_apply_to_run(nullptr, G.P_CENTERS->get(id));
+                    return true;
+                }));
+            }
+        const Value rules = fld(ch, "rules");
+        if (Table *m = fld(rules, "modifiers").table())
+            for (int k = 1; k <= m->len(); k++) sp->set(fld(m->get(k), "id"), fld(m->get(k), "value"));
+        if (Table *c = fld(rules, "custom").table())
+            for (int k = 1; k <= c->len(); k++) {
+                const Value v = c->get(k);
+                const Value id = fld(v, "id");
+                auto nbr = [&] {
+                    if (!mods->get(K("no_blind_reward")).truthy()) mods->set("no_blind_reward", Value(new_table()));
+                    return mods->get(K("no_blind_reward")).table();
+                };
+                if (id.equals("no_reward")) {
+                    for (const char *b : {"Small", "Big", "Boss"}) nbr()->set(b, true);
+                } else if (id.equals("no_reward_specific")) {
+                    nbr()->set(fld(v, "value"), true);
+                } else if (fld(v, "value").truthy()) {
+                    mods->set(id, fld(v, "value"));
+                } else if (id.equals("no_shop_jokers")) {
+                    GAME->set("joker_rate", 0);
+                } else {
+                    mods->set(id, true);
+                }
+            }
+        const Value r = fld(ch, "restrictions");
+        Table *banned = GAME->get(K("banned_keys")).table();
+        if (Table *bc = fld(r, "banned_cards").table())
+            for (int k = 1; k <= bc->len(); k++) {
+                banned->set(fld(bc->get(k), "id"), true);
+                if (Table *ids = fld(bc->get(k), "ids").table())
+                    for (int i = 1; i <= ids->len(); i++) banned->set(ids->get(i), true);
+            }
+        for (const char *list : {"banned_tags", "banned_other"})
+            if (Table *b = fld(r, list).table())
+                for (int k = 1; k <= b->len(); k++) banned->set(fld(b->get(k), "id"), true);
+    }
 
     rr->set("hands", sp->get(K("hands")));
     rr->set("discards", sp->get(K("discards")));
@@ -1149,15 +1220,8 @@ void Globals::start_run(const TableRef &args_in) {
         lua_sort(playing_cards, [](const CardRef &a, const CardRef &b) { return a->playing_card.num() > b->playing_card.num(); });
     } else {
     // the deck
-    std::vector<TableRef> protos;
-    P_CARDS->each([&](const Value &k, const Value &) {
-        std::string key(k.str());
-        // TODO(run): erratic decks (starting_params.erratic_suits_and_ranks) and challenge decks
-        std::string r = key.substr(2, 1), s = key.substr(0, 1);
-        bool keep = true;
-        if (sp->get(K("no_faces")).truthy() && (r == "K" || r == "Q" || r == "J")) keep = false;
-        if (keep) protos.push_back(vl::T({{"s", Value(s)}, {"r", Value(r)}}));
-    });
+    // a challenge's deck, an erratic deck or every card (challenge_card_protos)
+    std::vector<TableRef> protos = challenge_card_protos(args->get(K("challenge")), true);
     if (Table *extra = sp->get(K("extra_cards")).table())
         extra->each([&](const Value &, const Value &v) { protos.push_back(TableRef(v.table())); });
     auto proto_key = [](const TableRef &p) {
@@ -1749,6 +1813,13 @@ void Globals::update(double dt) {
 
 // ------------------------------------------------------------------ Game:draw
 void Globals::draw() {
+    // per-section CPU time of the frame's recording (the dev server's perf reports them)
+    double prof_t = time_now();
+    auto prof = [&](int i) {
+        const double now = time_now();
+        draw_prof[i] += (now - prof_t) * 1000;
+        prof_t = now;
+    };
     FRAMES.DRAW++;
     reset_drawhash();
     if (OVERLAY_TUTORIAL && !OVERLAY_MENU) under_overlay = true;
@@ -1764,6 +1835,7 @@ void Globals::draw() {
         if (vl_bench != 2 && !render::draw_background_sprite(SPLASH_BACK.get())) SPLASH_BACK->draw();
         gfx::pop();
     }
+    prof(0);
     STAGE_OBJECTS[STAGE].each([&](Node *v) { v->under_overlay = (bool)OVERLAY_TUTORIAL; });
     I.NODE.each([](Node *v) {
         if (!v->parent) draw_node(v);
@@ -1772,6 +1844,7 @@ void Globals::draw() {
         if (!v->parent) draw_node(v);
     });
     if (SPLASH_LOGO) draw_node(SPLASH_LOGO.get());
+    prof(1);
 
     if (!OVERLAY_MENU || !F_HIDE_BG) {
         I.UIBOX.each([&](Node *v) {
@@ -1780,12 +1853,14 @@ void Globals::draw() {
                 v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get())
                 draw_node(v);
         });
+        prof(2);
         I.CARDAREA.each([](Moveable *v) {
             if (!v->parent) draw_node(v);
         });
         I.CARD.each([&](Moveable *v) {
             if (!v->parent && v != CONTROLLER->dragging.target.get() && v != CONTROLLER->focused.target.get()) draw_node(v);
         });
+        prof(3);
         I.UIBOX.each([&](Node *v) {
             auto *b = dynamic_cast<UIBox *>(v);
             if (b && b->attention_text && v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get())
@@ -1811,7 +1886,9 @@ void Globals::draw() {
         else draw_node(v);
     };
     if (vl_bench == 5) overlay_zoom.on = false;
+    prof(4);
     if (OVERLAY_MENU && vl_bench != 3 && OVERLAY_MENU.get() != CONTROLLER->dragging.target.get()) draw_maybe_zoomed(OVERLAY_MENU.get());
+    prof(5);
     if (debug_tools && debug_tools.get() != CONTROLLER->dragging.target.get()) draw_node(debug_tools.get());
     I.ALERT.each([&](Node *v) { draw_maybe_zoomed(v); });
     if (CONTROLLER->dragging.target && CONTROLLER->dragging.target != CONTROLLER->focused.target)

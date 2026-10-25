@@ -183,4 +183,22 @@ void combo_setup(int hand_delta) {
     add_jokers("j_mime,j_blueprint,j_baron,j_brainstorm,j_sock_and_buskin");
 }
 
+// common_events.lua add_joker(joker, edition, silent, eternal)
+Card *add_joker(const std::string &key, const Value &edition, bool silent, bool eternal) {
+    const Value center = G.P_CENTERS->get(Value(key));
+    CardArea *area = fld(center, "consumeable").truthy() ? G.consumeables.get() : G.jokers.get();
+    const float x = area ? area->T->x : G.ROOM->T->w / 2 - G.CARD_W / 2, y = area ? area->T->y : G.ROOM->T->h / 2 - G.CARD_H / 2;
+    Back *back = G.GAME->get(K("selected_back")).as<Back>();
+    Card *card = new Card(x, y, G.CARD_W, G.CARD_H, G.P_CARDS->get(K("empty")), center,
+                          vl::T({{"discover", true}, {"bypass_discovery_center", true}, {"bypass_discovery_ui", true}, {"bypass_back", back ? Value(back->pos) : Value()}}));
+    card->start_materialize(nullptr, silent);
+    if (area) card->add_to_deck();
+    if (edition.truthy()) card->set_edition(Value(vl::T({{edition.to_string().c_str(), true}})));
+    if (eternal) card->set_eternal(true);
+    if (area && card->ability->get(K("set")).equals("Joker")) area->emplace(card);
+    else if (G.consumeables) G.consumeables->emplace(card);
+    card->created_on_pause = false;
+    return card;
+}
+
 }  // namespace vl

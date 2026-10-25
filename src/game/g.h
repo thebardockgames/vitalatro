@@ -225,6 +225,9 @@ struct Globals {
     // 5 overlay unzoomed, 6 no occlusion pre-pass, 7 card effect shaders
     // replaced by the plain card shader, 8-11 one edition shader plain, 12 no background field pass
     int vl_bench = 0;
+    // CPU ms recording each part of the frame (accumulated; the dev server's perf reads and resets):
+    // background, nodes, UI boxes, card areas and cards, attention texts..., overlay menu
+    double draw_prof[6] = {};
     int focused_profile = 1;    // G.focused_profile
     Ref<class Card> sticker_card;  // G.sticker_card: the run setup's deck preview top card
     std::vector<Ref<CardArea>> your_collection;  // G.your_collection (one area for the seals page)

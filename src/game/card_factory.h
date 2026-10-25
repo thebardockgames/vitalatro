@@ -31,5 +31,7 @@ void add_jokers(const std::string &keys);
 // the stress test (a naneinf build): every playing card becomes a Steel King of Spades with a Red
 // Seal, the hand grows by hand_delta and Mime, Blueprint, Baron, Brainstorm, Sock and Buskin join
 void combo_setup(int hand_delta);
+// add_joker(joker, edition, silent, eternal): a joker (or consumable) given outright (challenges)
+Card *add_joker(const std::string &key, const Value &edition = Value(), bool silent = false, bool eternal = false);
 
 }  // namespace vl
