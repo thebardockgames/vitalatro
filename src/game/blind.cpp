@@ -189,7 +189,7 @@ void Blind::set_blind(const Value &blind, bool reset, bool silent) {
             e.blockable = false;
             G.E_MANAGER->add_event(e);
         }
-        // config.h_popup_config: the blind's hover popup (TODO(run): its UI)
+        // (the original sets config.h_popup_config here but never an h_popup: no hover popup in a run)
     }
 
     if (name == "The Eye" && !reset) {
@@ -209,7 +209,22 @@ void Blind::set_blind(const Value &blind, bool reset, bool silent) {
         ease_hands_played(-hands_sub.num());
     }
     if (name == "The Manacle" && !reset) G.hand->change_size(-1);
-    // TODO(run): Amber Acorn (flips and shuffles the jokers)
+    if (name == "Amber Acorn" && !reset && !G.jokers->cards.empty()) {
+        G.jokers->unhighlight_all();
+        for (auto &j : G.jokers->cards) j->flip();
+        if (G.jokers->cards.size() > 1)
+            G.E_MANAGER->add_event(ev_after(0.2, [] {
+                for (float pitch : {0.85f, 1.15f, 1.0f}) {
+                    G.E_MANAGER->add_event(ev_immediate([pitch] {
+                        G.jokers->shuffle("aajk");
+                        play_sound("cardSlide1", pitch);
+                        return true;
+                    }));
+                    delay(pitch == 1.0f ? 0.5 : 0.15);
+                }
+                return true;
+            }));
+    }
 
     // add new debuffs
     for (auto &c : std::vector<CardRef>(G.playing_cards)) debuff_card(c.get());
@@ -270,7 +285,7 @@ std::string Blind::get_loc_debuff_text() const {
     Value bl = config->get(K("blind"));
     std::string disp = (fld(bl, "name").equals("The Wheel") ? fld(G.GAME->get(K("probabilities")), "normal").to_string() : std::string()) +
                        std::string(vars->get(K("loc_debuff_text")).str());
-    // TODO(run): The Mouth's only_hand
+    if (fld(bl, "name").equals("The Mouth") && only_hand.truthy()) disp += " [" + localize(only_hand.to_string(), "poker_hands").to_string() + "]";
     return disp;
 }
 
@@ -365,8 +380,47 @@ void Blind::align() {
 }
 
 void Blind::drawn_to_hand() {
-    // TODO(run): Cerulean Bell, Crimson Heart
+    if (!disabled) {
+        if (name == "Cerulean Bell") {
+            bool any_forced = false;
+            for (auto &c : G.hand->cards)
+                if (c->ability->get(K("forced_selection")).truthy()) any_forced = true;
+            if (!any_forced) {
+                G.hand->unhighlight_all();
+                TableRef list = new_table();
+                for (auto &c : G.hand->cards) list->push(Value((Object *)c.get()));
+                double seed = pseudoseed("cerulean_bell");
+                if (Card *forced = pseudorandom_element(Value(list), &seed).as<Card>()) {
+                    forced->ability->set("forced_selection", true);
+                    G.hand->add_to_highlighted(forced);
+                }
+            }
+        }
+        if (name == "Crimson Heart" && prepped && !G.jokers->cards.empty()) {
+            TableRef jokers = new_table();
+            for (auto &j : std::vector<CardRef>(G.jokers->cards)) {
+                if (!j->debuff || G.jokers->cards.size() < 2) jokers->push(Value((Object *)j.get()));
+                j->set_debuff(false);
+            }
+            double seed = pseudoseed("crimson_heart");
+            if (Card *c = pseudorandom_element(Value(jokers), &seed).as<Card>()) {
+                c->set_debuff(true);
+                c->juice_up_card();
+                wiggle();
+            }
+        }
+    }
     prepped = false;
+}
+
+bool Blind::stay_flipped(CardArea *area, Card *card) {
+    if (disabled || !G.hand || area != G.hand.get()) return false;
+    if (name == "The Wheel" && pseudorandom(pseudoseed("wheel")) < fld(G.GAME->get(K("probabilities")), "normal").num() / 7) return true;
+    const Value cr = G.GAME->get(K("current_round"));
+    if (name == "The House" && fld(cr, "hands_played").num() == 0 && fld(cr, "discards_used").num() == 0) return true;
+    if (name == "The Mark" && card->is_face(true)) return true;
+    if (name == "The Fish" && prepped) return true;
+    return false;
 }
 
 void Blind::debuff_card(Card *card, bool) {

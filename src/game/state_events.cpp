@@ -243,6 +243,9 @@ void reset_blinds() {
 }
 
 Value get_new_boss() {
+    // VL_BOSS=bl_x: every boss is that one (test hook, as REF_BOSS)
+    static const char *forced = std::getenv("VL_BOSS");
+    if (forced && *forced) return Value(forced);
     if (!gv("perscribed_bosses").truthy()) G.GAME->set("perscribed_bosses", Value(new_table()));
     const double ante = fld(gv("round_resets"), "ante").num();
     Value pres = gt("perscribed_bosses")->get(ante);
@@ -490,7 +493,8 @@ void draw_card(CardArea *from, CardArea *to, double percent, const char *dir, bo
         if (Card *card = rc.get()) {
             if (from) card = from->remove_card(card);
             if (card) drawn = true;
-            bool sf = false;  // TODO(run): G.GAME.blind:stay_flipped(to, card)
+            Blind *bl = G.GAME ? G.GAME->get(K("blind")).as<Blind>() : nullptr;
+            bool sf = bl && bl->stay_flipped(to, card);
             Value fc = fld(gv("modifiers"), "flipped_cards");
             if (fc.truthy() && G.hand && to == G.hand.get())
                 if (pseudorandom(pseudoseed("flipped_card")) < 1 / fc.num()) sf = true;
@@ -1017,7 +1021,71 @@ void skip_blind(UIElement *e) {
 }
 
 void start_run_fn(UIElement *e) { start_run_with(e, nullptr); }
+
+// G.FUNCS.reroll_boss_button
+void reroll_boss_button(UIElement *e) {
+    const bool rv = gt("used_vouchers")->get(K("v_retcon")).truthy(), dc = gt("used_vouchers")->get(K("v_directors_cut")).truthy();
+    const bool can = gv("dollars").num() - gv("bankrupt_at").num() - 10 >= 0 && (rv || (dc && !gt("round_resets")->get(K("boss_rerolled")).truthy()));
+    e->config->set("colour", can ? G.colour("RED") : fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
+    e->config->set("button", can ? Value("reroll_boss") : Value());
+    for (int i = 0; i < 2; i++) {
+        if (UIElement *t = child(child(e, i), 0)) t->config->set("shadow", can);
+    }
+}
 }  // namespace
+
+// G.FUNCS.reroll_boss (the Boss Tag sets G.from_boss_tag: no charge)
+void reroll_boss(UIElement *) {
+    stop_use();
+    gt("round_resets")->set("boss_rerolled", true);
+    if (!G.G_TABLE->get(K("from_boss_tag")).truthy()) ease_dollars(-10);
+    G.G_TABLE->set("from_boss_tag", Value());
+    G.CONTROLLER->locks["boss_reroll"] = true;
+    G.E_MANAGER->add_event(ev_immediate([] {
+        play_sound("other1");
+        if (auto *b = dynamic_cast<UIBox *>(G.blind_select_opts["boss"].get())) {
+            static const Bond weak = Bond::Weak;
+            RoleArgs ra;
+            ra.xy_bond = &weak;
+            b->set_role(ra);
+            b->alignment.offset.y = 20;
+        }
+        return true;
+    }));
+    G.E_MANAGER->add_event(ev_after(0.3, [] {
+        auto *old = dynamic_cast<UIBox *>(G.blind_select_opts["boss"].get());
+        if (!old) return true;
+        auto *par = dynamic_cast<UIElement *>(old->parent);
+        gt("round_resets")->get(K("blind_choices")).table()->set("Boss", get_new_boss());
+        old->remove();
+        Transform t0{};
+        t0.x = par ? par->T->x : 0;
+        auto *nb = new UIBox(TableRef(vl::T({{"n", (double)UIT_ROOT}, {"config", Value(vl::T({{"align", "cm"}, {"colour", G.colour("CLEAR")}}))},
+                                             {"nodes", Value(A({Value(UIBox_dyn_container(A({Value(create_UIBox_blind_choice("Boss"))}), false, Value(get_blind_main_colour(Value("Boss"))),
+                                                                        Value(mix_colours(G.colour("BLACK"), Value(get_blind_main_colour(Value("Boss"))), 0.8f))))}))}})),
+                             vl::T({{"align", "bmi"}, {"offset", Value(vl::T({{"x", 0}, {"y", G.ROOM->T->y + 9}}))}, {"major", Value((Object *)par)}, {"xy_bond", "Weak"}}),
+                             &t0);
+        G.blind_select_opts["boss"] = NodeRef(nb);
+        if (par) {
+            par->config->set("object", Value((Object *)nb));
+            nb->recalculate();
+        }
+        nb->parent = par;
+        nb->alignment.offset.y = 0;
+        EventConfig unlock = ev_after(0.5, [] {
+            G.CONTROLLER->locks.erase("boss_reroll");
+            return true;
+        });
+        unlock.blocking = false;
+        G.E_MANAGER->add_event(unlock);
+        save_run();
+        Table *tags = gt("tags");
+        for (int i = 1; i <= tags->len(); i++)
+            if (Tag *t = tags->get(i).as<Tag>())
+                if (t->apply_to_run(vl::T({{"type", "new_blind_choice"}})).truthy()) break;
+        return true;
+    }));
+}
 
 void start_run_with(UIElement *e, const TableRef &args) {
     // G.FUNCS.start_run(e, args). TODO(run): the run setup screen (G.FUNCS.setup_run) to pick the deck and stake
@@ -1269,6 +1337,8 @@ void register_run_callbacks() {
         // TODO(ui): the tag's description popup
     };
     F["skip_blind"] = skip_blind;
+    F["reroll_boss"] = [](UIElement *e) { reroll_boss(e); };
+    F["reroll_boss_button"] = reroll_boss_button;
     F["run_info"] = [](UIElement *) {
         // TODO(run): the run info overlay
     };
@@ -1317,7 +1387,7 @@ void register_run_callbacks() {
         wipe_off();
     };
     F["start_run"] = start_run_fn;
-    F["setup_run"] = start_run_fn;
+    // (setup_run: run_setup.cpp)
 }
 
 }  // namespace vl

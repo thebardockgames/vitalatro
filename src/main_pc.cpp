@@ -4,6 +4,7 @@
 //   VL_DATA=<assets dir> vitalatro_pc m0 <out_prefix> [time]
 //       renders every M0 benchmark configuration and diagnostic page
 #include <cstdio>
+#include <functional>
 #include <cstdlib>
 #include <cstring>
 #include <set>
@@ -21,6 +22,8 @@
 #include "game/g.h"
 #include "game/run.h"
 #include "game/state_events.h"
+#include "game/tag.h"
+#include "game/ui_definitions.h"
 #include "gfx/backend.h"
 #include "gfx/gfx.h"
 #include "m0/m0.h"
@@ -92,11 +95,32 @@ int main(int argc, char **argv) {
             jokers_frame = std::atoi(j);
             jokers_list = c + 1;
         }
+    // VL_TAGS="frame:tag_a,tag_b": add_tag(Tag(key)) for each (test hook, as REF_TAGS)
+    int tags_frame = -1;
+    std::string tags_list;
+    if (const char *t = std::getenv("VL_TAGS"))
+        if (const char *c = std::strchr(t, ':')) {
+            tags_frame = std::atoi(t);
+            tags_list = c + 1;
+        }
     for (int f = 1; f <= last; f++) {
         if (f == jokers_frame) vl::add_jokers(jokers_list);
+        if (f == tags_frame)
+            for (size_t p = 0; p < tags_list.size();) {
+                size_t q = tags_list.find(',', p);
+                if (q == std::string::npos) q = tags_list.size();
+                vl::add_tag(new vl::Tag(vl::Value(tags_list.substr(p, q - p))));
+                p = q + 1;
+            }
         if (dev) {
             next_frame += 1.0 / 60;
             vl::time_sleep(next_frame - vl::time_now());
+        }
+        // VL_GAME_SET="frame:key=number": G.GAME[key] = number at that frame (test hook)
+        if (const char *gs = std::getenv("VL_GAME_SET"); gs && std::strchr(gs, ':') && std::atoi(gs) == f) {
+            std::string kv = std::strchr(gs, ':') + 1;
+            size_t eq = kv.find('=');
+            if (eq != std::string::npos) vl::G.GAME->set(vl::Value(kv.substr(0, eq)), std::atof(kv.c_str() + eq + 1));
         }
         // VL_DOLLARS="frame:n": G.GAME.dollars = n at that frame (test hook)
         if (const char *d = std::getenv("VL_DOLLARS"); d && std::strchr(d, ':') && std::atoi(d) == f)
@@ -137,6 +161,19 @@ int main(int argc, char **argv) {
                     }
                 while (*p && *p != ',') p++;
                 if (*p) p++;
+            }
+        // VL_DUMP_UI=frame: the overlay menu's UI tree (as REF_DUMP_UI): depth, UIT, T x y w h, id
+        if (const char *du = std::getenv("VL_DUMP_UI"); du && std::atoi(du) == f)
+            if (auto *ov = dynamic_cast<vl::UIBox *>(vl::G.OVERLAY_MENU.get())) {
+                std::function<void(vl::Node *, int)> walk = [&](vl::Node *n, int d) {
+                    auto *e = dynamic_cast<vl::UIElement *>(n);
+                    if (!e) return;
+                    vl::Value id = e->config->get(vl::Value("id"));
+                    std::printf("UI %d %d %.3f %.3f %.3f %.3f %s\n", d, e->UIT, e->T->x, e->T->y, e->T->w, e->T->h, id.truthy() ? id.to_string().c_str() : "-");
+                    for (int i = 0; i < e->children.count(); i++) walk(e->children.at(i), d + 1);
+                    if (auto *o = dynamic_cast<vl::UIBox *>(e->config->get(vl::Value("object")).obj())) walk(o->UIRoot.get(), d + 1);
+                };
+                walk(ov->UIRoot.get(), 0);
             }
         if (const char *pf = std::getenv("VL_PROBE_SIGN"); pf && std::atoi(pf) == f)
             if (auto *box = dynamic_cast<vl::UIBox *>(vl::G.SHOP_SIGN.get())) {

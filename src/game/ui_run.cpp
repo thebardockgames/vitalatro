@@ -441,9 +441,12 @@ TableRef create_UIBox_blind_select() {
                          node(UIT_R, vl::T({{"align", "cm"}}),
                               A({node(UIT_O, vl::T({{"object", obj(dyna({{"string", localize("ph_choose_blind_2")}, {"colours", Value(A({col("WHITE")}))}, {"shadow", true},
                                                                          {"bump", true}, {"scale", 0.7}, {"pop_in", 0.5}, {"maxw", 5}, {"silent", true}}))},
-                                                    {"id", "prompt_dynatext2"}}))}))
-                         // TODO(run): the reroll boss button (Retcon / Director's Cut)
-                      }))
+                                                    {"id", "prompt_dynatext2"}}))})),
+                         (gv("used_vouchers").get(K("v_retcon")).truthy() || gv("used_vouchers").get(K("v_directors_cut")).truthy())
+                             ? Value(UIBox_button(vl::T({{"label", Value(A({localize("b_reroll_boss"), Value(localize("$").to_string() + "10")}))},
+                                                         {"button", "reroll_boss"},
+                                                         {"func", "reroll_boss_button"}})))
+                             : Value()}))
                      .table()),
         vl::T({{"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -15}}))}, {"major", obj(hudbox ? hudbox->get_UIE_by_ID("row_blind") : nullptr)}, {"bond", "Weak"}}));
     G.E_MANAGER->add_event(ev_immediate([] {

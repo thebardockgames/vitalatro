@@ -33,6 +33,8 @@ void reset_ancient_card();
 void reset_castle_card();
 void reset_blinds();
 Value get_new_boss();
+// G.FUNCS.reroll_boss: a new boss on the blind select screen ($10, free from the Boss Tag)
+void reroll_boss(class UIElement *e = nullptr);
 // get_current_pool(_type, _rarity, _legendary, _append): the pool and its seed key
 std::pair<TableRef, std::string> get_current_pool(const char *type, const Value &rarity = Value(), bool legendary = false,
                                                   const std::string &append = "");

@@ -17,6 +17,7 @@ public:
     void stop_hover() override;
     Ref<Tag> tag;
     bool hovering = false;
+    TableRef ability_UIBox_table;  // Tag:get_uibox_table()
 };
 
 class Tag : public Object {
@@ -34,6 +35,8 @@ public:
     void juice_up(float scale = 0.4f, const float *rot = nullptr);
     // returns {n = C, ...} and the sprite
     TableRef generate_UI(float size = 0.8f, TagSprite **sprite_out = nullptr);
+    // Tag:get_uibox_table(tag_sprite): the description into the sprite's ability_UIBox_table
+    void get_uibox_table(TagSprite *sprite = nullptr);
     void remove_from_game();
     void remove();
 

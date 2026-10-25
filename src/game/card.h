@@ -126,6 +126,8 @@ public:
     bool lucky_trigger = false, shattered = false, destroyed = false;
     bool getting_sliced = false, vampired = false;
     bool opening = false, shop_voucher = false, from_tag = false;
+    bool temp_edition = false;  // a tag is about to give the shop joker an edition
+    Moveable *jimbo = nullptr;   // the Card_Character this card is (hovering it shows no description)
     bool lua_discovered = false;  // card.discovered, set when discover_card() is handed the card itself
     std::vector<Ref<Card>> eligible_strength_jokers, eligible_editionless_jokers;  // (Card:update)
     Value back_overlay;
@@ -175,6 +177,8 @@ public:
     explicit Back(const Value &selected_back = Value());
     Value get_name() const;
     void change_to(const Value &new_back);
+    // Back:generate_UI(other, ui_scale, min_dims): the deck's description (run setup, collection)
+    TableRef generate_UI(const Value &other = Value(), double ui_scale = 0.9, double min_dims = 0.7);
     void apply_to_run();
     // trigger_effect{context = 'final_scoring_step', chips, mult} (Plasma Deck)
     void trigger_effect_final_scoring(double &chips, double &mult);

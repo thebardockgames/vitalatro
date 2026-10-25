@@ -10,6 +10,7 @@
 namespace vl {
 
 class Card;
+class CardArea;
 
 class Blind : public Moveable {
 public:
@@ -31,6 +32,8 @@ public:
     void change_dim(float w, float h);
     void align();
     void drawn_to_hand();
+    // Blind:stay_flipped(area, card): a card drawn to the hand stays face down
+    bool stay_flipped(CardArea *area, Card *card);
     void debuff_card(Card *card, bool from_blind = false);
     void defeat(bool silent = false);
     void disable();

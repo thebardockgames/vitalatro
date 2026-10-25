@@ -77,6 +77,15 @@ public:
     struct { float x = 0, y = 0; } scale;
     float scale_mag = 1;
     SpritePos sprite_pos, sprite_pos_copy;
+    // the original passes some sprites a pos table it later changes in place (a card's back is
+    // G.GAME[back].pos, which Back:change_to rewrites): drawing follows it
+    TableRef pos_ref;
+    void follow_pos_ref() {
+        if (!pos_ref) return;
+        sprite_pos.x = (float)pos_ref->get(K("x")).num();
+        sprite_pos.y = (float)pos_ref->get(K("y")).num();
+        if (sprite_pos.x != sprite_pos_copy.x || sprite_pos.y != sprite_pos_copy.y) set_sprite_pos(sprite_pos);
+    }
     gfx::Quad quad{};
     float image_dims[2] = {0, 0};
     std::vector<DrawStep> draw_steps;

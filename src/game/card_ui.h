@@ -20,6 +20,8 @@ Value info_tip_from_rows(const Value &desc_nodes, const Value &name);
 Value name_from_rows(const Value &name_nodes, const Value &background_colour = Value());
 // G.UIDEF.card_h_popup(card)
 TableRef card_h_popup(Card *card);
+// the same for any node with an ability_UIBox_table (a tag's sprite: card nil, center = its config)
+TableRef card_h_popup(const TableRef &AUT, const Value &center, Card *card = nullptr);
 // G.FUNCS.show_infotip / blueprint_compat
 void register_card_ui_callbacks();
 // G.UIDEF.card_focus_ui(card): the controller's frame and buttons around the focused card

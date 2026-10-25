@@ -692,10 +692,13 @@ TableRef Card::generate_UIBox_ability_table() {
 
 // ------------------------------------------------------------------ G.UIDEF.card_h_popup
 TableRef card_h_popup(Card *card) {
-    TableRef AUT = card->ability_UIBox_table;
-    if (!AUT) return nullptr;
-    const bool debuffed = card->debuff;
     const Value center = card->config->get(K("center")).truthy() ? card->config->get(K("center")) : Value(card->config);
+    return card_h_popup(card->ability_UIBox_table, center, card);
+}
+
+TableRef card_h_popup(const TableRef &AUT, const Value &center, Card *card) {
+    if (!AUT) return nullptr;
+    const bool debuffed = card && card->debuff;
     const Value card_type_colour = get_type_colour(center, card);
     const std::string act = AUT->get(K("card_type")).to_string();
     Value card_type_background;
@@ -719,7 +722,7 @@ TableRef card_h_popup(Card *card) {
     TableRef info_boxes = new_table();
     TableRef badges = new_table();
     if (fld(AUTb, "card_type").truthy() || fld(AUTb, "force_rarity").truthy()) {
-        const Value an = card->ability->get(K("name"));
+        const Value an = card ? card->ability->get(K("name")) : Value();
         Value label = (an.equals("Pluto") || an.equals("Ceres") || an.equals("Eris")) ? localize("k_dwarf_planet")
                       : an.equals("Planet X")                                         ? localize("k_planet_q")
                                                                                        : card_type;
@@ -738,7 +741,7 @@ TableRef card_h_popup(Card *card) {
                                 list({nd(UIT_R, vl::T({{"align", "cm"}, {"colour", Value(lighten(colour("JOKER_GREY"), 0.5f))}, {"r", 0.1}, {"padding", 0.05}, {"emboss", 0.05}}),
                                          list({info_tip_from_rows(v, fld(v, "name"))}))})));
         }
-    TableRef col_cfg = vl::T({{"align", "cm"}, {"func", "show_infotip"}, {"object", Value((Object *)new Moveable())}});
+    TableRef col_cfg = vl::T({{"align", "cm"}, {"func", "show_infotip"}, {"object", Value((Object *)new Moveable(0, 0, 0, 0))}});
     if (info_boxes->len() > 0) col_cfg->set("ref_table", Value(info_boxes));
     return TableRef(nd(UIT_ROOT, vl::T({{"align", "cm"}, {"colour", colour("CLEAR")}}),
                        list({nd(UIT_C, col_cfg,
@@ -794,6 +797,11 @@ TableRef Card::align_h_popup() {
 }
 
 void Card::hover() {
+    // (Card_Character sets card.hover = Node.hover on Jimbo's card)
+    if (jimbo) {
+        Node::hover();
+        return;
+    }
     float r = 0.03f;
     juice_up_card(0.05f, &r);
     play_sound("paper1", (float)(lua_math.random() * 0.2 + 0.9), 0.35f);

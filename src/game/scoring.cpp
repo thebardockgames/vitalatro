@@ -1156,8 +1156,20 @@ void end_round() {
             G.save_settings();
         }
         check_for_unlock(vl::T({{"type", "round_win"}}));
-        // TODO(run): set_joker_usage(), win_game() when the run is won
-        (void)game_won;
+        set_joker_usage();
+        if (game_won && !gv("win_notified").truthy()) {
+            G.GAME->set("win_notified", true);
+            EventConfig w = ev_immediate([] {
+                if (G.STATE != ROUND_EVAL) return false;
+                win_game();
+                // (G.FTP_LOCKED: never on the Vita)
+                G.GAME->set("won", true);
+                return true;
+            });
+            w.blocking = false;
+            w.blockable = false;
+            G.E_MANAGER->add_event(w);
+        }
         std::vector<CardRef> hand_cards(G.hand->cards);
         const int n = (int)hand_cards.size();
         for (int i = 1; i <= n; i++) {

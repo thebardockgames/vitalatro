@@ -177,6 +177,7 @@ gfx::Texture *Sprite::flame_field(float time, float amount, float id) {
 }
 
 void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
+    follow_pos_ref();
     bool no_tilt = a.no_tilt || G.reduced_motion();
     Moveable *dm = role.draw_major ? role.draw_major : this;
     if (a.shadow_height) {
@@ -328,6 +329,7 @@ void Sprite::draw_shader(gfx::ShaderId sh, const ShaderArgs &a) {
 
 void Sprite::draw_self(const float *overlay) {
     if (!states.visible) return;
+    follow_pos_ref();
     if (sprite_pos.x != sprite_pos_copy.x || sprite_pos.y != sprite_pos_copy.y) set_sprite_pos(sprite_pos);
     prep_draw(this, 1);
     gfx::scale(1 / (scale.x / VT.w), 1 / (scale.y / VT.h));

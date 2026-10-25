@@ -264,6 +264,8 @@ void Card::set_sprites(const Value &center, const Value &front) {
                 pos = fld(G.P_CENTERS->get(K("b_red")), "pos");
             }
             Sprite *s = new Sprite(T->x, T->y, T->w, T->h, atlas("centers"), pos_of(pos));
+            if (!params->get(K("bypass_back")).truthy() && playing_card.truthy())
+                if (Back *b = G.GAME->get(Value(intern(back))).as<Back>()) s->pos_ref = b->pos;
             children.set("back", s);
             s->states.collide.can = false;
             RoleType glued = RoleType::Glued;
@@ -2008,8 +2010,11 @@ bool CardArea::draw_card_from(CardArea *from, bool stay_flipped, bool discarded_
         if (card) {
             CardRef keep(card);
             if (G.discard && from == G.discard.get()) card->T->r = 0;
-            (void)stay_flipped;
-            bool sf = false;  // TODO(run): G.GAME.blind:stay_flipped(self, card) and flipped_cards modifier
+            (void)stay_flipped;  // (the original's argument is shadowed by the blind's answer)
+            Blind *bl = G.GAME ? G.GAME->get(K("blind")).as<Blind>() : nullptr;
+            bool sf = bl && bl->stay_flipped(this, card);
+            const Value fc = G.GAME->get(K("modifiers")).get(K("flipped_cards"));
+            if (is_hand && fc.truthy() && pseudorandom(pseudoseed("flipped_card")) < 1 / fc.num()) sf = true;
             emplace(card, nullptr, sf);
             return true;
         }

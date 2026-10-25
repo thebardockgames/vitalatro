@@ -42,6 +42,11 @@ set(COMMON_SRC
   src/game/boosters.cpp
   src/game/jokers.cpp
   src/game/tag.cpp
+  src/game/card_character.cpp
+  src/game/profile.cpp
+  src/game/game_over.cpp
+  src/game/run_setup.cpp
+  src/game/challenges.cpp
   src/game/common_events.cpp
   src/game/g.cpp
   src/game/game.cpp

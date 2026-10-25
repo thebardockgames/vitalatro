@@ -69,5 +69,23 @@ void discover_card(const Value &card);
 void unlock_notify();
 void fetch_achievements();
 void notify_alert(const Value &achievement, const Value &type = Value());
+// misc_functions.lua: the profile's joker and deck usage, wins and losses (profile.cpp)
+void set_joker_usage();
+void set_joker_win();
+void set_joker_loss();
+void set_deck_usage();
+void set_deck_win();
+void set_deck_loss();
+void set_challenge_unlock();
+// the end of a run (game_over.cpp)
+void remove_save();
+void game_over_update();  // Game:update_game_over
+void win_game();
+void register_game_over_callbacks();
+// G.FUNCS.overlay_menu{definition = G.UIDEF.run_setup(from)}: the new run screen ('' or
+// 'from_game_over' / 'from_game_won', which cannot be closed)
+void open_run_setup(const std::string &from);
+void register_run_setup_callbacks();
+TableRef create_UIBox_round_scores_row(const std::string &score, const Value &text_colour = Value());
 
 }  // namespace vl

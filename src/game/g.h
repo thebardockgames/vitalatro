@@ -226,6 +226,7 @@ struct Globals {
     // replaced by the plain card shader, 8-11 one edition shader plain, 12 no background field pass
     int vl_bench = 0;
     int focused_profile = 1;    // G.focused_profile
+    Ref<class Card> sticker_card;  // G.sticker_card: the run setup's deck preview top card
     std::vector<Ref<CardArea>> your_collection;  // G.your_collection (one area for the seals page)
     int CHECK_PROFILE_DATA = -1;  // G.CHECK_PROFILE_DATA: -1 nil, 0 false, 1 true
     TableRef collab_credits;    // G.collab_credits (built by the credits' Collabs tab)

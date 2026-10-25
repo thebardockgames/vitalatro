@@ -1304,20 +1304,7 @@ void Globals::update_round_eval(double) {
 
 void Globals::update_shop(double) { shop_update(); }
 
-// TODO(run): create_UIBox_game_over (hito 5). For now: the sounds, then back to the main menu.
-void Globals::update_game_over(double) {
-    if (STATE_COMPLETE) return;
-    play_sound("negative", 0.5f, 0.7f);
-    play_sound("whoosh2", 0.9f, 0.7f);
-    ROOM_jiggle += 3;
-    attention_text(vl::T({{"scale", 1.4}, {"text", localize("ph_game_over")}, {"hold", 3}, {"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -2.7}}))},
-                          {"major", Value((Object *)play.get())}}));
-    E_MANAGER->add_event(ev_after(4, [] {
-        G.FUNCS["go_to_menu"](nullptr);
-        return true;
-    }));
-    STATE_COMPLETE = true;
-}
+void Globals::update_game_over(double) { game_over_update(); }
 
 void Globals::main_menu(std::string_view change_context) {
     bool splash = change_context == "splash", game = change_context == "game";
