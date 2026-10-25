@@ -31,6 +31,11 @@
 
 #include "stb/stb_image_write.h"
 
+#if __has_include(<valgrind/callgrind.h>)
+#include <valgrind/callgrind.h>
+#define VL_HAVE_CALLGRIND 1
+#endif
+
 namespace {
 void shot(const std::string &out) {
     std::vector<uint8_t> px;
@@ -147,6 +152,13 @@ int main(int argc, char **argv) {
         }();
         std::vector<vl::NodeRef> detail_log;
         if (detail_frames.count(f)) vl::G.id_detail_log = &detail_log;
+#ifdef VL_HAVE_CALLGRIND
+        // VL_CALLGRIND="from:to": callgrind instruments only those frames (valgrind --instr-atstart=no)
+        if (const char *cg = std::getenv("VL_CALLGRIND"); cg && std::strchr(cg, ':')) {
+            if (f == std::atoi(cg)) CALLGRIND_START_INSTRUMENTATION;
+            if (f == std::atoi(std::strchr(cg, ':') + 1)) CALLGRIND_STOP_INSTRUMENTATION;
+        }
+#endif
         vl::game_frame(1.0 / 60);
         vl::G.id_detail_log = nullptr;
         // VL_PROBE_FLAMES="f,f": the flame shaders' inputs (as REF_PROBE on G.ARGS.chip_flames...)

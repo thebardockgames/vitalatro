@@ -76,7 +76,7 @@ void ease_dollars(double mod, bool instant = false);
 void ease_discard(double mod, bool instant = false, bool silent = false);
 void ease_hands_played(double mod, bool instant = false);
 void highlight_card(Card *card, double percent, const char *dir);
-void play_area_status_text(const Value &text, bool silent = false, double delay = 0);
+void play_area_status_text(const Value &text, bool silent = false, double delay = 0.6);
 void juice_card(Card *card);
 void update_hand_text(const TableRef &config, const TableRef &vals);
 void level_up_hand(Moveable *card, const std::string &hand, bool instant = false, double amount = 1);
