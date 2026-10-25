@@ -1688,12 +1688,13 @@ void CardArea::draw() {
             Value en = Value((Object *)G.LANGUAGES["en-us"].get());
             Value card_count;
             if (!sv) {
+                const double cs = 0.3 * small_detail_scale();
                 const char *al = (G.jokers && this == G.jokers.get()) ? "cl" : (G.hand && this == G.hand.get()) ? "cm" : "cr";
                 card_count = nd(UIT_R, vl::T({{"align", al}, {"padding", 0.03}, {"no_fill", true}}),
                                 A({nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.1}})),
-                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_count"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
-                                   nd(UIT_T, vl::T({{"text", "/"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
-                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_limit"}, {"scale", 0.3}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_count"}, {"scale", cs}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_T, vl::T({{"text", "/"}, {"scale", cs}, {"lang", en}, {"colour", G.colour("WHITE")}})),
+                                   nd(UIT_T, vl::T({{"ref_table", Value(config)}, {"ref_value", "card_limit"}, {"scale", cs}, {"lang", en}, {"colour", G.colour("WHITE")}})),
                                    nd(UIT_B, vl::T({{"w", 0.1}, {"h", 0.1}}))}));
             }
             TableRef inner = new_table();

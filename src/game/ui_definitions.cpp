@@ -15,6 +15,7 @@
 #include "engine/ui.h"
 #include "game/card.h"
 #include "game/functions.h"
+#include "game/card_ui.h"
 #include "game/g.h"
 
 namespace vl {
@@ -740,7 +741,8 @@ TableRef create_button_binding_pip(const TableRef &args) {
     SpritePos p;
     p.x = (float)x;
     p.y = con == "Nintendo" ? 2.f : con == "Playstation" ? (G.F_PS4_PLAYSTATION_GLYPHS ? 3.f : 1.f) : 0.f;
-    float scale = args->get(K("scale")).truthy() ? (float)args->get(K("scale")).num() : 0.45f;
+    // (the default size grows with large menus: the Vita's SELECT/START pips are unreadable at 0.45)
+    float scale = args->get(K("scale")).truthy() ? (float)args->get(K("scale")).num() : 0.45f * (float)small_detail_scale();
     Sprite *s = new Sprite(0, 0, scale, scale, &G.ASSET_ATLAS["gamepad_ui"], p);
     return TableRef(node(UIT_ROOT, vl::T({{"align", "cm"}, {"colour", col("CLEAR")}}), A({node(UIT_O, vl::T({{"object", obj(s)}}))})).table());
 }

@@ -864,6 +864,7 @@ double focus_button_scale() {
     static const bool plain = std::getenv("VL_NO_ZOOM") != nullptr;
     return !plain && G.SETTINGS->get(K("vl_large_menus")).truthy() ? 1.4 : 1;
 }
+double small_detail_scale() { return focus_button_scale() > 1 ? 1.6 : 1; }
 namespace {
 
 // every size in a UI definition (text scale, min/max sizes, padding, corner radius, button pip) times k

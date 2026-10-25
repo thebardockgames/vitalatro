@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(os.path.abspath(__file__)).parent
 sys.path.insert(0, str(HERE))
 import shader_to_cg  # noqa: E402
 
@@ -403,11 +403,16 @@ def build_vita_shaders(src, out):
 
 
 def wsl_path(p):
-    p = str(Path(p).resolve())
-    return '/mnt/' + p[0].lower() + p[2:].replace('\\', '/')
+    # Windows (D:\x) or msys (/d/x) python paths
+    p = os.path.abspath(str(p)).replace('\\', '/')
+    if len(p) > 2 and p[0] == '/' and p[2] == '/':
+        return '/mnt/' + p[1].lower() + p[2:]
+    return '/mnt/' + p[0].lower() + p[2:]
 
 
 def run_wsl(args):
+    # (msys python would rewrite the /mnt/... arguments into Windows paths)
+    os.environ.update(MSYS2_ARG_CONV_EXCL='*', MSYS_NO_PATHCONV='1')
     r = subprocess.run(['wsl', '-d', 'Ubuntu', '--'] + args, capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f'{args[0]} failed:\n{r.stdout}{r.stderr}')
@@ -418,6 +423,10 @@ def main():
     argv = list(sys.argv)
     res = game / 'resources'
     copy_tree(res / 'textures' / '1x', out / 'textures' / '1x', '**/*.png')
+    if target == 'vita':
+        # the Vita's button pips: shoulders facing their side, START/SELECT (tools/vita_pips.py)
+        run_wsl(['python3', wsl_path(HERE / 'vita_pips.py'), wsl_path(res / 'textures' / '1x' / 'gamepad_ui.png'),
+                 wsl_path(out / 'textures' / '1x' / 'gamepad_ui.png')])
     copy_tree(res / 'sounds', out / 'sounds', '*.ogg')
     # love.filesystem.getDirectoryItems("resources/sounds") at runtime: the list ships as a file
     (out / 'sounds' / 'index.txt').write_text(

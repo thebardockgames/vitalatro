@@ -28,5 +28,8 @@ UIBox *card_focus_ui(Card *card);
 void realign_focused_ui(Card *card);
 // the size of the focus buttons (1, or 1.4 with large menus on)
 double focus_button_scale();
+// small HUD details that are unreadable on the Vita's screen (button pips, card area counts):
+// 1, or 1.6 with large menus on
+double small_detail_scale();
 
 }  // namespace vl
