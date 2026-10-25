@@ -88,19 +88,13 @@ void bench_frame(double dt, uint32_t buttons) {
         }
         return;
     }
+    // holding L+R starts the GPU bench in the dev build only (L1/R1 switch the menus' tabs)
+#ifdef VL_DEV
     bench_hold = (buttons & LR) == LR ? bench_hold + dt : 0;
-    // also once per boot by itself, when a menu (a collection page...) has been open for 5 s
-    static double overlay_t = 0;
-    static bool auto_done = false;
-#ifdef __vita__
-    overlay_t = (G.OVERLAY_MENU || G.vl_debug_table) ? overlay_t + dt : 0;
 #else
-    overlay_t = 0;  // (PC captures must not be disturbed)
+    (void)buttons;
+    bench_hold = 0;
 #endif
-    if (!auto_done && overlay_t > 5) {
-        auto_done = true;
-        bench_hold = 2;
-    }
     if (bench_hold > 1.0) {
         bench_hold = 0;
         start_gpu_bench();
