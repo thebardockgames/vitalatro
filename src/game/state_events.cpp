@@ -91,9 +91,6 @@ void check_and_set_high_score(const char *score, const Value &amt) {
     }
 }
 
-void save_run() {
-    // TODO(run): serialize the run (cardAreas, tags, GAME, STATE, BLIND, BACK) into G.ARGS.save_run
-}
 
 double scale_number(const Value &number, double scale, double max) {
     const double E_SWITCH_POINT = 100000000000;

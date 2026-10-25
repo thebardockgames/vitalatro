@@ -20,6 +20,9 @@ public:
     void update_alert();
     void set_base(const Value &card, bool initial = false);
     void set_sprites(const Value &center, const Value &front);
+    // Card:save() / Card:load(cardTable) (save_run.cpp)
+    TableRef save() const;
+    void load(const TableRef &t);
     void set_ability(const Value &center, bool initial = false, bool delay_sprites = false);
     void set_cost();
     void set_edition(const Value &edition, bool immediate = false, bool silent = false);
@@ -147,6 +150,9 @@ public:
     void remove_from_highlighted(Card *card, bool force = false);
     void unhighlight_all();
     void set_ranks();
+    // CardArea:save() / CardArea:load(cardAreaTable) (save_run.cpp)
+    TableRef save() const;
+    void load(const TableRef &t);
     void move(double dt) override;
     void update(double dt) override;
     void draw() override;
@@ -179,6 +185,7 @@ public:
     void change_to(const Value &new_back);
     // Back:generate_UI(other, ui_scale, min_dims): the deck's description (run setup, collection)
     TableRef generate_UI(const Value &other = Value(), double ui_scale = 0.9, double min_dims = 0.7);
+    TableRef save() const;  // Back:save()
     void apply_to_run();
     // trigger_effect{context = 'final_scoring_step', chips, mult} (Plasma Deck)
     void trigger_effect_final_scoring(double &chips, double &mult);

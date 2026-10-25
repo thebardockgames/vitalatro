@@ -44,6 +44,9 @@ public:
                      bool &modded);
     bool debuff_hand(const std::vector<Card *> &cards, const TableRef &hand, const std::string &handname, bool check);
     void remove() override;
+    // Blind:save() / Blind:load(blindTable) (save_run.cpp)
+    TableRef save() const;
+    void load(const TableRef &t);
 
     AnimatedSprite *sprite() const { return dynamic_cast<AnimatedSprite *>(children.get("animatedSprite")); }
 

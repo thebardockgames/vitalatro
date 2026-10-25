@@ -678,6 +678,7 @@ void Globals::prep_stage(int new_stage, int new_state, bool new_game_obj) {
 }
 
 void Globals::delete_run() {
+    for (const char *k : {"load_shop_booster", "load_shop_jokers", "load_shop_vouchers"}) G_TABLE->set(k, Value());
     if (ROOM) {
         // remove_all(G.STAGE_OBJECTS[G.STAGE])
         std::vector<Ref<Node>> objs(STAGE_OBJECTS[STAGE].raw().begin(), STAGE_OBJECTS[STAGE].raw().end());
@@ -941,24 +942,36 @@ void Globals::debug_table() {
 // ------------------------------------------------------------------ Game:start_run
 void Globals::start_run(const TableRef &args_in) {
     TableRef args = args_in ? args_in : new_table();
-    // TODO(run): continuing a saved run (args.savetext)
+    // args.savetext: a saved run (the Continue tab)
+    const Value save = args->get(K("savetext"));
+    const bool loading = save.is_table();
     G_TABLE->set("SAVED_GAME", Value());
-    prep_stage(RUN, BLIND_SELECT, false);
+    prep_stage(RUN, loading ? (int)fld(save, "STATE").num() : BLIND_SELECT, false);
     STAGE = RUN;
+    if (loading) check_for_unlock(vl::T({{"type", "continue_game"}}));
     STATE_COMPLETE = false;
     RESET_BLIND_STATES = true;
-    ease_background_colour_blind(STATE, "Small Blind");
+    if (!loading) {
+        ease_background_colour_blind(STATE, "Small Blind");
+    } else {
+        std::string bn = fld(fld(save, "BLIND"), "name").to_string();
+        std::string trimmed;
+        for (char c : bn)
+            if (!std::isspace((unsigned char)c)) trimmed += c;
+        ease_background_colour_blind(STATE, trimmed.empty() ? "Small Blind" : bn.c_str());
+    }
 
     Value sb = (GAME->get(K("viewed_back")).truthy() ? fld(GAME->get(K("viewed_back")).as<Back>() ? Value(GAME->get(K("viewed_back")).as<Back>()->name) : Value(), "") : Value());
     Value selected_back_name;
-    if (Back *vb = GAME->get(K("viewed_back")).as<Back>()) selected_back_name = Value(vb->name);
+    if (loading) selected_back_name = fld(fld(save, "BACK"), "name");
+    else if (Back *vb = GAME->get(K("viewed_back")).as<Back>()) selected_back_name = Value(vb->name);
     else if (Back *b = GAME->get(K("selected_back")).as<Back>()) selected_back_name = Value(b->name);
     else selected_back_name = Value("Red Deck");
     (void)sb;
     Value selected_back = get_deck_from_name(selected_back_name);
-    GAME = init_game_object();
+    GAME = loading ? TableRef(fld(save, "GAME").table()) : init_game_object();
     if (!GAME->get(K("modifiers")).truthy()) GAME->set("modifiers", Value(new_table()));
-    GAME->set("stake", args->get(K("stake")).truthy() ? args->get(K("stake")) : Value(1));
+    GAME->set("stake", args->get(K("stake")).truthy() ? args->get(K("stake")) : GAME->get(K("stake")).truthy() ? GAME->get(K("stake")) : Value(1));
     GAME->set("STOP_USE", 0);
     GAME->set("selected_back", Value((Object *)new Back(selected_back)));
     GAME->set("selected_back_key", selected_back);
@@ -969,7 +982,9 @@ void Globals::start_run(const TableRef &args_in) {
     }
 
     Table *mods = GAME->get(K("modifiers")).table(), *sp = GAME->get(K("starting_params")).table();
+    Table *rr = GAME->get(K("round_resets")).table(), *cr = GAME->get(K("current_round")).table();
     const double stake = GAME->get(K("stake")).num();
+    if (!loading) {
     if (stake >= 2) {
         if (!mods->get(K("no_blind_reward")).truthy()) mods->set("no_blind_reward", Value(new_table()));
         mods->get(K("no_blind_reward")).table()->set("Small", true);
@@ -983,7 +998,6 @@ void Globals::start_run(const TableRef &args_in) {
     GAME->get(K("selected_back")).as<Back>()->apply_to_run();
     // TODO(run): challenges (args.challenge)
 
-    Table *rr = GAME->get(K("round_resets")).table(), *cr = GAME->get(K("current_round")).table();
     rr->set("hands", sp->get(K("hands")));
     rr->set("discards", sp->get(K("discards")));
     rr->set("reroll_cost", sp->get(K("reroll_cost")));
@@ -991,15 +1005,18 @@ void Globals::start_run(const TableRef &args_in) {
     GAME->set("base_reroll_cost", sp->get(K("reroll_cost")));
     rr->set("reroll_cost", GAME->get(K("base_reroll_cost")));
     cr->set("reroll_cost", GAME->get(K("base_reroll_cost")));
+    }
     GAME->set("chips_text", "");
 
     Table *pr = GAME->get(K("pseudorandom")).table();
-    if (args->get(K("seed")).truthy()) GAME->set("seeded", true);
     Value tp = SETTINGS->get(K("tutorial_progress"));
-    pr->set("seed", args->get(K("seed")).truthy() ? args->get(K("seed"))
-                    : !(SETTINGS->get(K("tutorial_complete")).truthy() || fld(fld(tp, "completed_parts"), "big_blind").truthy())
-                        ? Value("TUTORIAL")
-                        : Value(generate_starting_seed()));
+    if (!loading) {
+        if (args->get(K("seed")).truthy()) GAME->set("seeded", true);
+        pr->set("seed", args->get(K("seed")).truthy() ? args->get(K("seed"))
+                        : !(SETTINGS->get(K("tutorial_complete")).truthy() || fld(fld(tp, "completed_parts"), "big_blind").truthy())
+                            ? Value("TUTORIAL")
+                            : Value(generate_starting_seed()));
+    }
     std::vector<Value> zero_keys;
     pr->each([&](const Value &k, const Value &v) {
         if (v.is_num() && v.num() == 0) zero_keys.push_back(k);
@@ -1009,11 +1026,15 @@ void Globals::start_run(const TableRef &args_in) {
     save_settings();
 
     if (!rr->get(K("blind_tags")).truthy()) rr->set("blind_tags", Value(new_table()));
-    rr->get(K("blind_choices")).table()->set("Boss", get_new_boss());
-    Value fv = fld(tp, "forced_voucher"), ft = fld(tp, "forced_tags");
-    cr->set("voucher", tp.truthy() && fv.truthy() ? fv : get_next_voucher_key());
-    rr->get(K("blind_tags")).table()->set("Small", tp.truthy() && ft.truthy() ? ft.get(1) : get_next_tag_key());
-    rr->get(K("blind_tags")).table()->set("Big", tp.truthy() && ft.truthy() ? ft.get(2) : get_next_tag_key());
+    if (!loading) {
+        rr->get(K("blind_choices")).table()->set("Boss", get_new_boss());
+        Value fv = fld(tp, "forced_voucher"), ft = fld(tp, "forced_tags");
+        cr->set("voucher", tp.truthy() && fv.truthy() ? fv : get_next_voucher_key());
+        rr->get(K("blind_tags")).table()->set("Small", tp.truthy() && ft.truthy() ? ft.get(1) : get_next_tag_key());
+        rr->get(K("blind_tags")).table()->set("Big", tp.truthy() && ft.truthy() ? ft.get(2) : get_next_tag_key());
+    } else if (fld(rr->get(K("blind")), "key").truthy()) {
+        rr->set("blind", P_BLINDS->get(fld(rr->get(K("blind")), "key")));
+    }
     CONTROLLER->locks["load"] = true;
     {
         EventConfig e = ev_after(3.5, [] {
@@ -1025,6 +1046,25 @@ void Globals::start_run(const TableRef &args_in) {
         e.blockable = false;
         e.has_timer = true;
         e.timer = EventTimer::TOTAL;
+        E_MANAGER->add_event(e);
+    }
+    // a saved action (a pack bought in the shop): use that card again once loaded
+    if (loading && fld(save, "ACTION").truthy()) {
+        const Value card_id = fld(fld(save, "ACTION"), "card");
+        EventConfig e = ev_after(0.5, [card_id] {
+            G.E_MANAGER->add_event(ev_immediate([card_id] {
+                G.E_MANAGER->add_event(ev_immediate([card_id] {
+                    G.I.CARD.each([&](Moveable *m) {
+                        if (auto *c = dynamic_cast<Card *>(m); c && card_id.is_num() && c->sort_id == (int)card_id.num()) use_card(c, nullptr, false, true);
+                    });
+                    return true;
+                }));
+                return true;
+            }));
+            return true;
+        });
+        e.blocking = false;
+        e.blockable = false;
         E_MANAGER->add_event(e);
     }
 
@@ -1087,6 +1127,27 @@ void Globals::start_run(const TableRef &args_in) {
         E_MANAGER->add_event(e);
     }
 
+    if (loading) {
+        // the saved areas; the shop's are kept for its creation (G.load_shop_jokers...)
+        if (Table *areas = fld(save, "cardAreas").table())
+            areas->each([&](const Value &k, const Value &v) {
+                const std::string key = k.to_string();
+                CardArea *a = key == "hand" ? hand.get() : key == "deck" ? deck.get() : key == "jokers" ? jokers.get() : key == "consumeables" ? consumeables.get()
+                            : key == "play" ? play.get() : key == "discard" ? discard.get() : nullptr;
+                if (a) a->load(TableRef(v.table()));
+                else G_TABLE->set(Value("load_" + key), v);
+            });
+        I.CARD.each([&](Moveable *m) {
+            if (auto *c = dynamic_cast<Card *>(m); c && c->playing_card.truthy()) playing_cards.push_back(CardRef(c));
+        });
+        I.CARDAREA.each([](Moveable *m) {
+            if (auto *a = dynamic_cast<CardArea *>(m)) {
+                a->align_cards();
+                a->hard_set_cards();
+            }
+        });
+        lua_sort(playing_cards, [](const CardRef &a, const CardRef &b) { return a->playing_card.num() > b->playing_card.num(); });
+    } else {
     // the deck
     std::vector<TableRef> protos;
     P_CARDS->each([&](const Value &k, const Value &) {
@@ -1107,17 +1168,20 @@ void Globals::start_run(const TableRef &args_in) {
     lua_sort(protos, [&](const TableRef &a, const TableRef &b) { return proto_key(a) < proto_key(b); });
     for (auto &p : protos) card_from_control(p);
     GAME->set("starting_deck_size", (double)playing_cards.size());
+    }
 
     delay(0.5);
-    cr->set("discards_left", rr->get(K("discards")));
-    cr->set("hands_left", rr->get(K("hands")));
-    deck->shuffle();
-    deck->hard_set_T(deck->T->x, deck->T->y, deck->T->w, deck->T->h);
-    reset_idol_card();
-    reset_mail_rank();
-    cr->get(K("ancient_card")).table()->set("suit", Value());
-    reset_ancient_card();
-    reset_castle_card();
+    if (!loading) {
+        cr->set("discards_left", rr->get(K("discards")));
+        cr->set("hands_left", rr->get(K("hands")));
+        deck->shuffle();
+        deck->hard_set_T(deck->T->x, deck->T->y, deck->T->w, deck->T->h);
+        reset_idol_card();
+        reset_mail_rank();
+        cr->get(K("ancient_card")).table()->set("suit", Value());
+        reset_ancient_card();
+        reset_castle_card();
+    }
 
     Blind *blind = new Blind(0, 0, 2, 1);
     GAME->set("blind", Value((Object *)blind));
@@ -1131,8 +1195,19 @@ void Globals::start_run(const TableRef &args_in) {
     HUD_tags.clear();
 
     check_and_set_high_score("most_money", GAME->get(K("dollars")));
-    blind->set_blind(Value(), false, true);
-    reset_blinds();
+    if (loading) {
+        blind->load(TableRef(fld(save, "BLIND").table()));
+        GAME->set("tags", Value(new_table()));
+        if (Table *tags = fld(save, "tags").table())
+            for (int i = 1; i <= tags->len(); i++) {
+                Tag *t = new Tag(Value("tag_uncommon"));
+                t->load(TableRef(tags->get(i).table()));
+                add_tag(t);
+            }
+    } else {
+        blind->set_blind(Value(), false, true);
+        reset_blinds();
+    }
     if (UIElement *bc = dynamic_cast<UIBox *>(HUD_blind.get())->get_UIE_by_ID("HUD_blind_count")) {
         auto it = FUNCS.find("blind_chip_UI_scale");
         if (it != FUNCS.end()) it->second(bc);

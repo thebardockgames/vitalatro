@@ -328,36 +328,68 @@ void shop_update() {
                 tags_apply(vl::T({{"type", "shop_start"}}), false);
                 bool nosave_shop = false;
                 if (!shop_exists) {
-                    // TODO(run): continuing a saved shop (G.load_shop_jokers / vouchers / booster)
-                    const int joker_max = (int)fld(gv("shop"), "joker_max").num();
-                    for (int i = 1, n = joker_max - (int)G.shop_jokers->cards.size(); i <= n; i++) G.shop_jokers->emplace(create_card_for_shop(G.shop_jokers.get()));
-                    Value cr = gv("current_round");
-                    Value voucher = fld(cr, "voucher");
-                    if (voucher.truthy() && G.P_CENTERS->get(voucher).truthy()) {
-                        Card *card = new Card(G.shop_vouchers->T->x + G.shop_vouchers->T->w / 2, G.shop_vouchers->T->y, G.CARD_W, G.CARD_H,
-                                              G.P_CARDS->get(K("empty")), G.P_CENTERS->get(voucher),
-                                              vl::T({{"bypass_discovery_center", true}, {"bypass_discovery_ui", true}}));
-                        card->shop_voucher = true;
-                        create_shop_card_ui(card, "Voucher", G.shop_vouchers.get());
-                        card->start_materialize();
-                        G.shop_vouchers->emplace(card);
+                    // a continued run's shop (G.load_shop_jokers / vouchers / booster, kept by start_run)
+                    auto saved = [](const char *k) { return G.G_TABLE->get(Value(intern(k))); };
+                    if (saved("load_shop_jokers").truthy()) {
+                        nosave_shop = true;
+                        G.shop_jokers->load(TableRef(saved("load_shop_jokers").table()));
+                        for (auto &v : std::vector<CardRef>(G.shop_jokers->cards)) {
+                            create_shop_card_ui(v.get());
+                            if (v->ability->get(K("consumeable")).truthy()) v->start_materialize();
+                            tags_apply(vl::T({{"type", "store_joker_modify"}, {"card", Value((Object *)v.get())}}), true);
+                        }
+                        G.G_TABLE->set("load_shop_jokers", Value());
+                    } else {
+                        const int joker_max = (int)fld(gv("shop"), "joker_max").num();
+                        for (int i = 1, n = joker_max - (int)G.shop_jokers->cards.size(); i <= n; i++) G.shop_jokers->emplace(create_card_for_shop(G.shop_jokers.get()));
                     }
-                    if (!fld(cr, "used_packs").truthy()) cr.table()->set("used_packs", Value(new_table()));
-                    Table *used = fld(cr, "used_packs").table();
-                    for (int i = 1; i <= 2; i++) {
-                        if (!used->get(i).truthy()) used->set(i, fld(get_pack("shop_pack"), "key"));
-                        if (!used->get(i).equals("USED")) {
-                            Card *card = new Card(G.shop_booster->T->x + G.shop_booster->T->w / 2, G.shop_booster->T->y, G.CARD_W * 1.27f, G.CARD_H * 1.27f,
-                                                  G.P_CARDS->get(K("empty")), G.P_CENTERS->get(used->get(i)),
+                    Value cr = gv("current_round");
+                    if (saved("load_shop_vouchers").truthy()) {
+                        nosave_shop = true;
+                        G.shop_vouchers->load(TableRef(saved("load_shop_vouchers").table()));
+                        for (auto &v : std::vector<CardRef>(G.shop_vouchers->cards)) {
+                            create_shop_card_ui(v.get());
+                            v->start_materialize();
+                        }
+                        G.G_TABLE->set("load_shop_vouchers", Value());
+                    } else {
+                        Value voucher = fld(cr, "voucher");
+                        if (voucher.truthy() && G.P_CENTERS->get(voucher).truthy()) {
+                            Card *card = new Card(G.shop_vouchers->T->x + G.shop_vouchers->T->w / 2, G.shop_vouchers->T->y, G.CARD_W, G.CARD_H,
+                                                  G.P_CARDS->get(K("empty")), G.P_CENTERS->get(voucher),
                                                   vl::T({{"bypass_discovery_center", true}, {"bypass_discovery_ui", true}}));
-                            create_shop_card_ui(card, "Booster", G.shop_booster.get());
-                            card->ability->set("booster_pos", i);
+                            card->shop_voucher = true;
+                            create_shop_card_ui(card, "Voucher", G.shop_vouchers.get());
                             card->start_materialize();
-                            G.shop_booster->emplace(card);
+                            G.shop_vouchers->emplace(card);
                         }
                     }
-                    tags_apply(vl::T({{"type", "voucher_add"}}), false);
-                    tags_apply(vl::T({{"type", "shop_final_pass"}}), false);
+                    if (saved("load_shop_booster").truthy()) {
+                        nosave_shop = true;
+                        G.shop_booster->load(TableRef(saved("load_shop_booster").table()));
+                        for (auto &v : std::vector<CardRef>(G.shop_booster->cards)) {
+                            create_shop_card_ui(v.get());
+                            v->start_materialize();
+                        }
+                        G.G_TABLE->set("load_shop_booster", Value());
+                    } else {
+                        if (!fld(cr, "used_packs").truthy()) cr.table()->set("used_packs", Value(new_table()));
+                        Table *used = fld(cr, "used_packs").table();
+                        for (int i = 1; i <= 2; i++) {
+                            if (!used->get(i).truthy()) used->set(i, fld(get_pack("shop_pack"), "key"));
+                            if (!used->get(i).equals("USED")) {
+                                Card *card = new Card(G.shop_booster->T->x + G.shop_booster->T->w / 2, G.shop_booster->T->y, G.CARD_W * 1.27f, G.CARD_H * 1.27f,
+                                                      G.P_CARDS->get(K("empty")), G.P_CENTERS->get(used->get(i)),
+                                                      vl::T({{"bypass_discovery_center", true}, {"bypass_discovery_ui", true}}));
+                                create_shop_card_ui(card, "Booster", G.shop_booster.get());
+                                card->ability->set("booster_pos", i);
+                                card->start_materialize();
+                                G.shop_booster->emplace(card);
+                            }
+                        }
+                        tags_apply(vl::T({{"type", "voucher_add"}}), false);
+                        tags_apply(vl::T({{"type", "shop_final_pass"}}), false);
+                    }
                 }
                 if (UIBox *s2 = shop_box()) G.CONTROLLER->snap_to(s2->get_UIE_by_ID("next_round_button"));
                 if (!nosave_shop)
@@ -650,7 +682,8 @@ void use_card(Card *card, UIElement *e, bool mute, bool nosave) {
         }));
         return;
     }
-    (void)nosave;  // TODO(run): save_with_action{type = 'use_card'} for boosters bought in the shop
+    if (card->ability->get(K("set")).equals("Booster") && !nosave && G.STATE == SHOP)
+        save_with_action(vl::T({{"type", "use_card"}, {"card", (double)card->sort_id}}));
     G.TAROT_INTERRUPT = G.STATE;
     if (card->ability->get(K("set")).equals("Booster")) G.GAME->set("PACK_INTERRUPT", G.STATE);
     const int s = G.STATE;

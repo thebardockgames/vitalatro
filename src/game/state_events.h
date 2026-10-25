@@ -17,7 +17,9 @@ class UIElement;
 void stop_use();
 void inc_career_stat(const char *stat, double mod);
 void check_and_set_high_score(const char *score, const Value &amt);
-void save_run();
+void save_run();  // save_run.cpp
+// save_with_action(action): a save that resumes the action (opening a bought pack) on load
+void save_with_action(const TableRef &action);
 double scale_number(const Value &number, double scale, double max = 10000);
 void pseudoshuffle(std::vector<CardRef> &list, double seed);
 std::string generate_starting_seed();
