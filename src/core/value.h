@@ -153,6 +153,8 @@ public:
 
     Value get(const Value &key) const;
     Value get(Str *key) const;
+    // the value at a string key without copying it (no refcount traffic): nullptr when absent
+    const Value *find(Str *key) const;
     Value get(const char *key) const { return get(Value(intern(key))); }
     Value get(int i) const;
     void set(const Value &key, Value v);
@@ -188,6 +190,7 @@ public:
 
 private:
     int find_hash(const Value &key) const;
+    int find_hash_str(const Str *key) const;
     void rehash();
     void migrate_from_hash();
 

@@ -160,10 +160,30 @@ Value Table::get(int i) const {
     return s >= 0 ? hvals_[s] : Value();
 }
 
+int Table::find_hash_str(const Str *key) const {
+    if (index_.empty()) return -1;
+    size_t mask = index_.size() - 1;
+    for (size_t h = key->hash & mask;; h = (h + 1) & mask) {
+        int32_t slot = index_[h];
+        if (slot < 0) return -1;
+        const Value &k = hkeys_[slot];
+        if (k.is_str()) {
+            const Str *ks = k.str_ptr();
+            if (ks == key || (ks->hash == key->hash && ks->s == key->s)) return slot;
+        }
+    }
+}
+
 Value Table::get(Str *key) const {
     if (hkeys_.empty()) return Value();
-    int s = find_hash(Value(key));
+    int s = find_hash_str(key);
     return s >= 0 ? hvals_[s] : Value();
+}
+
+const Value *Table::find(Str *key) const {
+    if (hkeys_.empty()) return nullptr;
+    int s = find_hash_str(key);
+    return s >= 0 ? &hvals_[s] : nullptr;
 }
 
 Value Table::get(const Value &key) const {

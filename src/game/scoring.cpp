@@ -1219,7 +1219,11 @@ void end_round() {
         draw_from_hand_to_discard();
         if (boss) {
             G.GAME->set("voucher_restock", Value());
-            // TODO(run): set_eternal_ante / set_joker_slots_ante (challenges)
+            const Value mods = G.GAME->get(K("modifiers"));
+            const double ante = rr->get(K("ante")).num();
+            if (fld(mods, "set_eternal_ante").truthy() && ante == fld(mods, "set_eternal_ante").num())
+                for (auto &j : G.jokers->cards) j->set_eternal(true);
+            if (fld(mods, "set_joker_slots_ante").truthy() && ante == fld(mods, "set_joker_slots_ante").num()) G.jokers->config->set("card_limit", 0);
             delay(0.4);
             ease_ante(1);
             delay(0.4);
@@ -1497,7 +1501,15 @@ void evaluate_round() {
         ease_background_colour_blind(ROUND_EVAL, "");
         return true;
     }));
-    // TODO(run): G.GAME.selected_back:trigger_effect{context = 'eval'} (Anaglyph Deck)
+    // G.GAME.selected_back:trigger_effect{context = 'eval'}: the Anaglyph Deck's Double Tag after a boss
+    if (Back *back = gv("selected_back").as<Back>();
+        back && back->name == "Anaglyph Deck" && fld(gv("last_blind"), "boss").truthy())
+        G.E_MANAGER->add_event(ev_immediate([] {
+            add_tag(new Tag("tag_double"));
+            play_sound("generic1", (float)(0.9 + lua_math.random() * 0.1), 0.8f);
+            play_sound("holo1", (float)(1.2 + lua_math.random() * 0.1), 0.4f);
+            return true;
+        }));
     Table *cr = gt("current_round");
     Value mods = gv("modifiers");
     if (cr->get(K("hands_left")).num() > 0 && !fld(mods, "no_extra_hand_money").truthy()) {

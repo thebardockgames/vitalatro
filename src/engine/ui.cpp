@@ -1,6 +1,8 @@
 // engine/ui.lua
 #include "engine/ui.h"
 
+#include "core/time.h"
+
 #include <cmath>
 #include <cstdio>
 
@@ -18,13 +20,20 @@ namespace vl {
 namespace {
 inline Value cv(const TableRef &c, Str *k) { return c->get(k); }
 inline float cf(const TableRef &c, Str *k, float d) {
-    Value v = c->get(k);
-    return v.is_num() ? (float)v.num() : d;
+    const Value *v = c->find(k);
+    return v && v->is_num() ? (float)v->num() : d;
 }
-inline bool cb(const TableRef &c, Str *k) { return c->get(k).truthy(); }
-inline Value gcol(const char *a, const char *b = nullptr) {
-    Value v = G.C->get(Value(intern(a)));
-    return b ? v.get(Value(intern(b))) : v;
+inline bool cb(const TableRef &c, Str *k) {
+    const Value *v = c->find(k);
+    return v && v->truthy();
+}
+inline Value gcol(Str *a, Str *b = nullptr) {
+    const Value *v = G.C->find(a);
+    if (!v) return Value();
+    if (!b) return *v;
+    const Table *t = v->table();
+    const Value *w = t ? t->find(b) : nullptr;
+    return w ? *w : Value();
 }
 Bond parse_bond(const Value &v, Bond def) {
     if (v.equals("Strong")) return Bond::Strong;
@@ -538,14 +547,14 @@ void UIElement::set_values(const Transform &Tn, bool recalculate) {
         config->set(K("juice"), false);
     }
     if (!cb(config, K("colour"))) {
-        if (UIT == UIT_ROOT) config->set(K("colour"), gcol("UI", "BACKGROUND_DARK"));
-        if (UIT == UIT_T) config->set(K("colour"), gcol("UI", "TEXT_LIGHT"));
-        if (UIT == UIT_O) config->set(K("colour"), gcol("WHITE"));
-        if (UIT == UIT_B || UIT == UIT_C || UIT == UIT_R) config->set(K("colour"), gcol("CLEAR"));
+        if (UIT == UIT_ROOT) config->set(K("colour"), gcol(K("UI"), K("BACKGROUND_DARK")));
+        if (UIT == UIT_T) config->set(K("colour"), gcol(K("UI"), K("TEXT_LIGHT")));
+        if (UIT == UIT_O) config->set(K("colour"), gcol(K("WHITE")));
+        if (UIT == UIT_B || UIT == UIT_C || UIT == UIT_R) config->set(K("colour"), gcol(K("CLEAR")));
     }
     if (!cb(config, K("outline_colour"))) {
-        if (UIT == UIT_O) config->set(K("colour"), gcol("UI", "OUTLINE_LIGHT"));  // (sic) sets colour
-        else config->set(K("outline_colour"), gcol("UI", "OUTLINE_LIGHT"));
+        if (UIT == UIT_O) config->set(K("colour"), gcol(K("UI"), K("OUTLINE_LIGHT")));  // (sic) sets colour
+        else config->set(K("outline_colour"), gcol(K("UI"), K("OUTLINE_LIGHT")));
     }
 
     Value fa = cv(config, K("focus_args"));
@@ -623,7 +632,12 @@ void UIElement::draw_children() {
         if (name == K("h_popup") || name == K("alert")) return;
         if (v) {
             if (cb(v->config, K("draw_layer"))) return;
+            // (dev profile: draw_self time and count by element type; children are measured on their own)
+            const double t0 = time_now();
             if (!cb(v->config, K("draw_after"))) v->draw_self();
+            const int slot = v->UIT == UIT_T ? 0 : v->UIT == UIT_O ? 2 : 1;
+            G.ui_prof[slot] += (time_now() - t0) * 1000;
+            G.ui_prof_n[slot]++;
             v->draw_children();
             if (cb(v->config, K("draw_after"))) v->draw_self();
         } else {
@@ -804,7 +818,7 @@ void UIElement::draw_self() {
             }
             prep_draw(this, 1);
             if (vert) { gfx::translate(0, VT.h); gfx::rotate(-(float)PI / 2); }
-            if (!button_active) set_color(gcol("UI", "TEXT_INACTIVE"));
+            if (!button_active) set_color(gcol(K("UI"), K("TEXT_INACTIVE")));
             else set_color(colour);
             if (td)
                 td->draw(f.TEXT_OFFSET.x * sc * f.FONTSCALE / TS, f.TEXT_OFFSET.y * sc * f.FONTSCALE / TS, 0,
@@ -830,24 +844,24 @@ void UIElement::draw_self() {
             UIElement *collided = cb(config, K("button_UIE")) ? cv(config, K("button_UIE")).as<UIElement>() : this;
             if (!collided) collided = this;
             Value bc[2];
-            bc[0] = cv(config, K("button_delay")).truthy() ? Value(mix_colours(colour, gcol("L_BLACK"), 0.5f)) : colour;
+            bc[0] = cv(config, K("button_delay")).truthy() ? Value(mix_colours(colour, gcol(K("L_BLACK")), 0.5f)) : colour;
             bool hover_col = (cb(collided->config, K("hover")) && collided->states.hover.is &&
                               (!G.CONTROLLER->HID.touch || G.CONTROLLER->is_cursor_down)) ||
                              (collided->has_last_clicked && collided->last_clicked > G.TIMERS.REAL - 0.1);
             int nbc = 1;
-            if (hover_col) bc[nbc++] = gcol("UI", "HOVER");
+            if (hover_col) bc[nbc++] = gcol(K("UI"), K("HOVER"));
             for (int k = 0; k < nbc; k++) {
                 set_color(bc[k]);
                 if (has_r && VT.w > 0.01f) {
                     if (cv(config, K("button_delay")).truthy()) {
-                        set_color(gcol("GREY"));
+                        set_color(gcol(K("GREY")));
                         draw_pixellated_rect(RECT_FILL, parallax_dist);
                         set_color(bc[k]);
                         draw_pixellated_rect(RECT_FILL, parallax_dist, 0, false, cf(config, K("button_delay_progress"), 0));
                     } else if (Table *pb = cv(config, K("progress_bar")).table()) {
-                        set_color(pb->get(K("empty_col")).truthy() ? pb->get(K("empty_col")) : gcol("GREY"));
+                        set_color(pb->get(K("empty_col")).truthy() ? pb->get(K("empty_col")) : gcol(K("GREY")));
                         draw_pixellated_rect(RECT_FILL, parallax_dist);
-                        set_color(pb->get(K("filled_col")).truthy() ? pb->get(K("filled_col")) : gcol("BLUE"));
+                        set_color(pb->get(K("filled_col")).truthy() ? pb->get(K("filled_col")) : gcol(K("BLUE")));
                         double val = pb->get(K("ref_table")).get(pb->get(K("ref_value"))).num();
                         draw_pixellated_rect(RECT_FILL, parallax_dist, 0, false, (float)(val / pb->get(K("max")).num(1)));
                     } else {
@@ -867,9 +881,9 @@ void UIElement::draw_self() {
                     prep_draw(this, 1);
                     gfx::scale(1 / TS);
                     gfx::set_line_width(lw + 1.5f);
-                    set_color(Value(adjust_alpha(gcol("WHITE"), 0.2f * lw)));
+                    set_color(Value(adjust_alpha(gcol(K("WHITE")), 0.2f * lw)));
                     draw_pixellated_rect(RECT_FILL, parallax_dist);
-                    set_color(colour[4].num() > 0 ? Value(mix_colours(gcol("WHITE"), colour, 0.8f)) : gcol("WHITE"));
+                    set_color(colour[4].num() > 0 ? Value(mix_colours(gcol(K("WHITE")), colour, 0.8f)) : gcol(K("WHITE")));
                     draw_pixellated_rect(RECT_LINE, parallax_dist);
                     gfx::pop();
                 } else {
@@ -901,9 +915,9 @@ void UIElement::draw_self() {
         prep_draw(this, 1);
         gfx::scale(1 / TS);
         gfx::set_line_width(lw + 1);
-        set_color(Value(adjust_alpha(gcol("BLACK"), 0.2f * lw)));
+        set_color(Value(adjust_alpha(gcol(K("BLACK")), 0.2f * lw)));
         draw_pixellated_rect(RECT_FILL, parallax_dist);
-        set_color(colour[4].num() > 0 ? Value(mix_colours(gcol("WHITE"), colour, 0.8f)) : gcol("WHITE"));
+        set_color(colour[4].num() > 0 ? Value(mix_colours(gcol(K("WHITE")), colour, 0.8f)) : gcol(K("WHITE")));
         draw_pixellated_rect(RECT_LINE, parallax_dist);
         gfx::pop();
     }
@@ -914,9 +928,9 @@ void UIElement::draw_self() {
         prep_draw(this, 1);
         gfx::scale(1 / TS);
         gfx::set_line_width(lw + 1.5f);
-        set_color(Value(adjust_alpha(gcol("WHITE"), 0.2f * lw)));
+        set_color(Value(adjust_alpha(gcol(K("WHITE")), 0.2f * lw)));
         draw_pixellated_rect(RECT_FILL, parallax_dist);
-        set_color(colour[4].num() > 0 ? Value(mix_colours(gcol("WHITE"), colour, 0.8f)) : gcol("WHITE"));
+        set_color(colour[4].num() > 0 ? Value(mix_colours(gcol(K("WHITE")), colour, 0.8f)) : gcol(K("WHITE")));
         draw_pixellated_rect(RECT_LINE, parallax_dist);
         gfx::pop();
     } else {
@@ -950,7 +964,7 @@ void UIElement::draw_self() {
         gfx::pop();
         prep_draw(this, 1);
         gfx::scale(1 / TS);
-        set_color(gcol("RED"));
+        set_color(gcol(K("RED")));
         tri(layered_parallax.x, layered_parallax.y, VT.w * TS, VT.h * TS, tv);
         gfx::polygon_fill(tv, 3);
         gfx::pop();

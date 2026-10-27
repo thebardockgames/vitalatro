@@ -1653,7 +1653,15 @@ void CardArea::move(double dt) {
 
 void CardArea::update(double) {
     if (G.hand && this == G.hand.get()) {
-        // TODO(run): minus_hand_size_per_X_dollar modifier
+        const Value per = G.GAME->get(K("modifiers")).get(K("minus_hand_size_per_X_dollar"));
+        if (per.truthy()) {
+            const double last = config->get(K("last_poll_size")).num();
+            const double now = std::floor(G.GAME->get(K("dollars")).num() / per.num());
+            if (now != last) {
+                change_size((int)(last - now));
+                config->set("last_poll_size", now);
+            }
+        }
         for (auto &v : std::vector<CardRef>(cards))
             if (v->ability->get(K("forced_selection")).truthy() && highlighted.empty()) add_to_highlighted(v.get());
     }

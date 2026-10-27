@@ -185,16 +185,37 @@ bool find_occluder(const Vertex *v, int n, float r[4]) {
         r[0] = std::ceil(x0 + t), r[1] = std::ceil(y0 + t), r[2] = std::floor(x1 - t), r[3] = std::floor(y1 - t);
         return r[2] > r[0] + 1 && r[3] > r[1] + 1 && covered(r);
     };
-    // the smallest uniform inset that is covered (about a rounded rectangle's corner radius)
-    float lo = 0, hi = std::min(x1 - x0, y1 - y0) * 0.5f;
-    if (!snapped(hi * 0.9f, r)) return false;
-    hi *= 0.9f;
-    for (int it = 0; it < 12; it++) {
-        float mid = (lo + hi) * 0.5f;
-        if (snapped(mid, r)) hi = mid;
-        else lo = mid;
+    // the smallest uniform inset that is covered (about a rounded rectangle's corner radius); the
+    // same panel comes back every frame, so the inset found for a shape (its outline relative to
+    // its first vertex, to 1/64 px) is tried first
+    uint64_t key = 1469598103934665603ull ^ (uint64_t)n;
+    for (int i = 0; i < n; i++) {
+        key = (key ^ (uint32_t)(int32_t)std::lround((v[i].x - v[0].x) * 64)) * 1099511628211ull;
+        key = (key ^ (uint32_t)(int32_t)std::lround((v[i].y - v[0].y) * 64)) * 1099511628211ull;
     }
-    snapped(hi, r);
+    static std::unordered_map<uint64_t, float> insets;
+    auto it_inset = insets.find(key);
+    float hi;
+    if (it_inset != insets.end() && it_inset->second >= 0 && snapped(it_inset->second, r)) {
+        hi = it_inset->second;
+    } else {
+        if (it_inset != insets.end() && it_inset->second < 0) return false;
+        float lo = 0;
+        hi = std::min(x1 - x0, y1 - y0) * 0.5f;
+        if (insets.size() > 4096) insets.clear();
+        if (!snapped(hi * 0.9f, r)) {
+            insets[key] = -1;
+            return false;
+        }
+        hi *= 0.9f;
+        for (int it = 0; it < 12; it++) {
+            float mid = (lo + hi) * 0.5f;
+            if (snapped(mid, r)) hi = mid;
+            else lo = mid;
+        }
+        snapped(hi, r);
+        insets[key] = hi;
+    }
     // only what lies inside the target matters
     float tw = (float)(S.canvas ? S.canvas->w : backend_screen_width()), th = (float)(S.canvas ? S.canvas->h : backend_screen_height());
     r[0] = std::max(r[0], 0.f), r[1] = std::max(r[1], 0.f), r[2] = std::min(r[2], tw), r[3] = std::min(r[3], th);

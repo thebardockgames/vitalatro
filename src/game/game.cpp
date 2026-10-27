@@ -11,6 +11,7 @@
 #include "engine/controller.h"
 #include "engine/random.h"
 #include "engine/sprite.h"
+#include "engine/text.h"
 #include "engine/ui.h"
 #include "game/button_callbacks.h"
 #include "game/card.h"
@@ -1717,7 +1718,37 @@ void Globals::update(double dt) {
     ed->set(2, 0.7 + 0.2 * (1 + std::sin(TIMERS.REAL * 1.5 + 6)));
 
     E_MANAGER->update(real_dt);
-    // TODO(run): boss warning text
+    Blind *gblind = GAME ? GAME->get(K("blind")).as<Blind>() : nullptr;
+    if (gblind && boss_throw_hand && STATE == SELECTING_HAND) {
+        if (!boss_warning_text) {
+            auto dyna_row = [this](Value str, double scale) {
+                DynaText *dt = new DynaText(vl::T({{"scale", scale}, {"string", str}, {"maxw", 9}, {"colours", Value(A({colour("WHITE")}))},
+                                                   {"float", true}, {"shadow", true}, {"silent", true}, {"pop_in", 0}, {"pop_in_rate", 6}}));
+                return Value(vl::T({{"n", (double)UIT_R},
+                                    {"config", Value(vl::T({{"align", "cm"}, {"maxw", 1}}))},
+                                    {"nodes", Value(A({Value(vl::T({{"n", (double)UIT_O}, {"config", Value(vl::T({{"object", Value((Object *)dt)}}))}}))}))}}));
+            };
+            Value def = Value(vl::T({{"n", (double)UIT_ROOT},
+                                     {"config", Value(vl::T({{"align", "cm"}, {"colour", colour("CLEAR")}, {"padding", 0.2}}))},
+                                     {"nodes", Value(A({dyna_row(Value(localize("ph_unscored_hand")), 0.7),
+                                                        dyna_row(Value(gblind->get_loc_debuff_text()), 0.6)}))}}));
+            UIBox *b = new UIBox(def.table(), vl::T({{"align", "cm"}, {"offset", Value(vl::T({{"x", 0}, {"y", -2.1}}))}, {"major", Value((Object *)play.get())}}));
+            boss_warning_text = b;
+            b->attention_text = true;
+            b->states.collide.can = false;
+            if (AnimatedSprite *as = gblind->sprite()) {
+                const float r = 0.02f;
+                as->juice_up(0.05f, &r);
+            }
+            play_sound("chips1", (float)(lua_math.random() * 0.1 + 0.55), 0.12f);
+        }
+    } else {
+        boss_throw_hand = false;
+        if (boss_warning_text) {
+            boss_warning_text->remove();
+            boss_warning_text = nullptr;
+        }
+    }
     if (STATE == SELECTING_HAND) {
         if (hand && hand->config->get(K("card_limit")).num() > 0 && hand->cards.empty() && !deck->cards.empty()) {
             STATE = DRAW_TO_HAND;

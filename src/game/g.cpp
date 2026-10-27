@@ -17,8 +17,10 @@ bool Globals::reduced_motion() const {
 
 bool Globals::shadows_on() const {
     if (!SETTINGS) return true;
-    Value g = SETTINGS->get(K("GRAPHICS"));
-    return g.get(Value(K("shadows"))).equals("On");
+    const Value *g = SETTINGS->find(K("GRAPHICS"));
+    const Table *t = g ? g->table() : nullptr;
+    const Value *v = t ? t->find(K("shadows")) : nullptr;
+    return v && v->equals("On");
 }
 
 Value Globals::colour(std::string_view name) const {

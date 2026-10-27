@@ -228,6 +228,9 @@ struct Globals {
     // CPU ms recording each part of the frame (accumulated; the dev server's perf reads and resets):
     // background, nodes, UI boxes, card areas and cards, attention texts..., overlay menu
     double draw_prof[6] = {};
+    // UI elements' draw_self by type (text, boxes, objects): ms and count, for the dev server's perf
+    double ui_prof[3] = {};
+    int ui_prof_n[3] = {};
     int focused_profile = 1;    // G.focused_profile
     Ref<class Card> sticker_card;  // G.sticker_card: the run setup's deck preview top card
     std::vector<Ref<CardArea>> your_collection;  // G.your_collection (one area for the seals page)

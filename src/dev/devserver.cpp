@@ -233,7 +233,10 @@ std::string perf_report() {
     const double *d = G.draw_prof;
     std::snprintf(dp, sizeof dp, "draw: background %.2f nodes %.2f uiboxes %.2f areas+cards %.2f texts %.2f overlay %.2f ms\n", d[0] / n, d[1] / n, d[2] / n,
                   d[3] / n, d[4] / n, d[5] / n);
-    return std::string(buf) + dp + "last frame " + gpu_line(gfx::last_frame_stats()) + "\nworst frame " + gpu_line(p.worst) + "\n";
+    char up[200];
+    std::snprintf(up, sizeof up, "ui draw_self: text %.2f ms (%d) boxes %.2f ms (%d) objects %.2f ms (%d) per frame\n", G.ui_prof[0] / n, G.ui_prof_n[0] / n,
+                  G.ui_prof[1] / n, G.ui_prof_n[1] / n, G.ui_prof[2] / n, G.ui_prof_n[2] / n);
+    return std::string(buf) + dp + up + "last frame " + gpu_line(gfx::last_frame_stats()) + "\nworst frame " + gpu_line(p.worst) + "\n";
 }
 
 // ------------------------------------------------------------------ commands
@@ -268,6 +271,7 @@ void run_command(Request *r) {
     } else if (c == "perf") {
         g_perf = Perf{};
         for (double &v : G.draw_prof) v = 0;
+        for (int i = 0; i < 3; i++) G.ui_prof[i] = 0, G.ui_prof_n[i] = 0;
         g_wait_secs = a.empty() ? 2.0 : std::atof(a[0].c_str());
         g_pending = r;
         g_wait = Wait::Perf;
