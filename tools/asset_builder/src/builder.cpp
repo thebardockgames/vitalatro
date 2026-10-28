@@ -19,11 +19,11 @@ const char *const SUPPORTED_VERSION = "1.0.1o";
 
 std::string check_game(const Game &game) {
     if (game.version != SUPPORTED_VERSION)
-        return "esta copia es la versión " + (game.version.empty() ? std::string("(desconocida)") : game.version) +
+        return "Esta copia es la versión " + (game.version.empty() ? std::string("(desconocida)") : game.version) +
                " de Balatro; Vitalatro necesita exactamente la " + SUPPORTED_VERSION + ".";
     for (const char *f : {"game.lua", "globals.lua", "functions/misc_functions.lua", "resources/textures/1x/Jokers.png",
                           "resources/fonts/m6x11plus.ttf"})
-        if (!game.exists(f)) return std::string("a esta copia le falta ") + f + ".";
+        if (!game.exists(f)) return std::string("A esta copia le falta ") + f + ".";
     return "";
 }
 

@@ -12,6 +12,12 @@ endif()
 add_compile_options(-ffp-contract=off)
 
 include(FetchContent)
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)  # FetchContent_Populate + our own targets for zlib
+endif()
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
 set(FETCHCONTENT_QUIET ON)
 
 # zlib 1.3.1: the PNGs must deflate exactly as Pillow's (built with zlib 1.3.1) do
@@ -74,9 +80,9 @@ if(EMSCRIPTEN)
   target_link_options(vl_asset_builder PRIVATE
     -sMODULARIZE=1 -sEXPORT_NAME=VLAssetBuilder -sENVIRONMENT=worker,node
     -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sINITIAL_MEMORY=64MB -sSTACK_SIZE=4MB
-    -sEXPORTED_FUNCTIONS=_malloc,_free,_vlab_open,_vlab_build,_vlab_result_count,_vlab_result_path,_vlab_result_data,_vlab_result_size,_vlab_make_vpk,_vlab_close
-    -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,HEAPU8,addFunction
-    -sALLOW_TABLE_GROWTH=1 -sNO_EXIT_RUNTIME=1)
+    -sEXPORTED_FUNCTIONS=_malloc,_free
+    -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToNewUTF8,HEAPU8
+    -sNO_EXIT_RUNTIME=1)
 else()
   add_executable(vl_asset_builder src/cli.cpp)
   target_link_libraries(vl_asset_builder vl_builder)

@@ -211,7 +211,7 @@ static std::unique_ptr<Game> find_game(std::unique_ptr<Archive> a, const std::st
                 return g2;
             }
         }
-        error = "no se encontraron los archivos de Balatro (falta version.jkr / main.lua)";
+        error = "No se encontraron los archivos de Balatro (falta version.jkr / main.lua)";
         return nullptr;
     }
     g->prefix = best;
@@ -228,7 +228,7 @@ std::unique_ptr<Game> open_game(std::shared_ptr<const Bytes> data, const std::st
     std::string kind = lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".apk") == 0 ? "apk" : "exe";
     auto a = open_zip(std::move(data), error);
     if (!a) {
-        error = "el archivo no es Balatro.exe ni un .apk de Balatro (" + error + ")";
+        error = "El archivo no es Balatro.exe ni un .apk de Balatro (" + error + ")";
         return nullptr;
     }
     return find_game(std::move(a), kind, error);

@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
                 if (!e.is_regular_file()) continue;
                 OutFile f;
                 f.path = fs::relative(e.path(), fs::u8path(base)).generic_u8string();
+                if (f.path == "manifest.json") continue;  // the site's list of the base files
                 std::ifstream s(e.path(), std::ios::binary);
                 f.data.assign(std::istreambuf_iterator<char>(s), std::istreambuf_iterator<char>());
                 basefiles.push_back(std::move(f));

@@ -77,7 +77,7 @@
       download.href = downloadUrl;
       download.hidden = false;
       status(buildStatus, 'ok', '✔ VPK generado', '(' + sizeMB(m.blob.size) + '). Descárgalo e instálalo en tu Vita.');
-      buildBtn.disabled = false;
+      buildBtn.disabled = true;  // the worker let go of the game: pick the file again to rebuild
     } else if (m.type === 'error') {
       busy = false;
       status(m.stage === 'inspect' ? fileStatus : buildStatus, 'err', '✘ Error:', m.message);
