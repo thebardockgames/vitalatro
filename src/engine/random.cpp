@@ -40,6 +40,7 @@ uint64_t LuaRandom::next_u64d() {
 }
 
 void LuaRandom::seed(double d) {
+    n_seed++;
     uint32_t r = 0x11090601;
     for (int i = 0; i < 4; i++) {
         uint32_t m = 1u << (r & 255);
@@ -54,6 +55,7 @@ void LuaRandom::seed(double d) {
 }
 
 double LuaRandom::random() {
+    n_random++;
     uint64_t u = next_u64d();
     double d;
     std::memcpy(&d, &u, 8);
