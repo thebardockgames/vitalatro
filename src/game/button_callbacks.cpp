@@ -665,6 +665,12 @@ void register_button_callbacks() {
     register_consumable_callbacks();
     register_booster_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
+    // G.FUNCS.continue_unlock: removes the overlay menu and immediately shows the next unlock screen if there is one
+    F["continue_unlock"] = [](UIElement *) {
+        exit_overlay_menu();
+        G.CONTROLLER->mod_cursor_context_layer(-2000);
+        G.E_MANAGER->update(0, true);
+    };
     F["options"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
         overlay_menu(create_UIBox_options());

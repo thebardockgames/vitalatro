@@ -48,6 +48,7 @@ set(COMMON_SRC
   src/game/run_setup.cpp
   src/game/challenges.cpp
   src/game/run_info.cpp
+  src/game/unlock_ui.cpp
   src/game/save_run.cpp
   src/game/common_events.cpp
   src/game/g.cpp

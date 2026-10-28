@@ -84,6 +84,8 @@ public:
     void explode(TableRef colours = nullptr, double explode_time_fac = 1);
     // the description popup (card_ui.cpp)
     TableRef generate_UIBox_ability_table();
+    // Card:generate_UIBox_unlock_table(hidden): the unlock condition (the unlock screen)
+    TableRef generate_UIBox_unlock_table(bool hidden);
     TableRef align_h_popup();
     TableRef ability_UIBox_table;
     Value get_field(const Value &key) const override;

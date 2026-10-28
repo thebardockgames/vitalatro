@@ -67,6 +67,8 @@ void check_for_unlock(const TableRef &args);
 void unlock_card(const Value &card);
 void discover_card(const Value &card);
 void unlock_notify();
+// create_unlock_overlay(key): queues the unlock screen of that center (the 'unlock' queue)
+void create_unlock_overlay(const std::string &key);
 void fetch_achievements();
 void notify_alert(const Value &achievement, const Value &type = Value());
 // misc_functions.lua: the profile's joker and deck usage, wins and losses (profile.cpp)
