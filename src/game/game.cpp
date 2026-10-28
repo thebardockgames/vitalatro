@@ -139,7 +139,8 @@ bool in_overlay(Node *v) {
     for (int i = 0; v && i < 64; i++) {
         if (v == o) return true;
         Moveable *m = dynamic_cast<Moveable *>(v);
-        v = v->parent ? v->parent : m ? m->role.major.get() : nullptr;
+        Card *c = dynamic_cast<Card *>(v);  // a card in an overlay's CardArea (collections, deck view)
+        v = v->parent ? v->parent : m && m->role.major ? m->role.major.get() : c ? static_cast<Node *>(c->area) : nullptr;
     }
     return false;
 }
@@ -1928,9 +1929,9 @@ void Globals::draw() {
     if (debug_tools && debug_tools.get() != CONTROLLER->dragging.target.get()) draw_node(debug_tools.get());
     I.ALERT.each([&](Node *v) { draw_maybe_zoomed(v); });
     if (CONTROLLER->dragging.target && CONTROLLER->dragging.target != CONTROLLER->focused.target)
-        draw_node(CONTROLLER->dragging.target.get());
+        draw_maybe_zoomed(CONTROLLER->dragging.target.get());
     if (Card *fc = dynamic_cast<Card *>(CONTROLLER->focused.target.get())) {
-        if (!(hand && fc->area == hand.get()) || CONTROLLER->focused.target == CONTROLLER->dragging.target) draw_node(fc);
+        if (!(hand && fc->area == hand.get()) || CONTROLLER->focused.target == CONTROLLER->dragging.target) draw_maybe_zoomed(fc);
     }
     // (VL_NO_ZOOM: frame comparisons with the original)
     static const bool popups_plain = std::getenv("VL_NO_ZOOM") != nullptr;
