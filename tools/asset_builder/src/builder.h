@@ -26,7 +26,8 @@ std::string check_game(const Game &game);
 using Progress = std::function<void(double fraction, const std::string &label)>;
 
 // textures/, sounds/, data/, fonts/ and our sce_sys images, sorted by path.
-std::vector<OutFile> build_assets(const Game &game, const Progress &progress);
+// with_sce_sys false: only what tools/build_assets.py makes (a drop-in for build/assets_vita).
+std::vector<OutFile> build_assets(const Game &game, const Progress &progress, bool with_sce_sys = true);
 
 // A VPK (zip) with the base package (eboot.bin, sce_sys/param.sfo, livearea template,
 // shaders/*.gxp) and the built files. Deflate level 6 except for already compressed formats

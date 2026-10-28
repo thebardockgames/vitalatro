@@ -27,7 +27,7 @@ std::string check_game(const Game &game) {
     return "";
 }
 
-std::vector<OutFile> build_assets(const Game &game, const Progress &progress) {
+std::vector<OutFile> build_assets(const Game &game, const Progress &progress, bool with_sce_sys) {
     std::vector<OutFile> out;
     auto step = [&](double f, const std::string &label) {
         if (progress) progress(f, label);
@@ -78,7 +78,7 @@ std::vector<OutFile> build_assets(const Game &game, const Progress &progress) {
 
     // the home screen bubble and LiveArea, drawn from the user's own textures
     step(0.93, "Icono y LiveArea");
-    make_livearea(game, out);
+    if (with_sce_sys) make_livearea(game, out);
 
     std::sort(out.begin(), out.end(), [](const OutFile &a, const OutFile &b) { return a.path < b.path; });
     step(1.0, "Recursos listos");

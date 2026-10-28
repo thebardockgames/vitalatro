@@ -24,14 +24,18 @@ static void write_file(const fs::path &p, const std::vector<uint8_t> &d) {
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s <Balatro.exe|.apk|game dir> <out_dir> [--vpk file --base dir]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <Balatro.exe|.apk|game dir> <out_dir> [--no-sce-sys] [--vpk file --base dir]\n",
+                     argv[0]);
         return 2;
     }
     std::string in = argv[1], outdir = argv[2], vpk, base;
-    for (int i = 3; i + 1 < argc; i += 2) {
+    bool sce_sys = true;  // --no-sce-sys: only build_assets.py's files (a drop-in for build/assets_vita)
+    for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
-        if (a == "--vpk") vpk = argv[i + 1];
-        else if (a == "--base") base = argv[i + 1];
+        if (a == "--vpk" && i + 1 < argc) vpk = argv[++i];
+        else if (a == "--base" && i + 1 < argc) base = argv[++i];
+        else if (a == "--no-sce-sys") sce_sys = false;
+        else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
     try {
         auto t0 = std::chrono::steady_clock::now();
@@ -45,7 +49,7 @@ int main(int argc, char **argv) {
         auto files = build_assets(*game, [](double f, const std::string &label) {
             std::printf("[%3d%%] %s\n", int(f * 100), label.c_str());
             std::fflush(stdout);
-        });
+        }, sce_sys);
         for (const auto &f : files) write_file(fs::u8path(outdir) / fs::u8path(f.path), f.data);
         std::printf("%zu files in %s\n", files.size(), outdir.c_str());
         if (!vpk.empty()) {
