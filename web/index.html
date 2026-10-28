@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vitalatro</title>
+<meta name="description" content="Genera el VPK de Vitalatro para PS Vita a partir de tu propia copia de Balatro, sin subir nada: todo ocurre en tu navegador.">
+<meta name="color-scheme" content="dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="crt" aria-hidden="true"></div>
+
+<main>
+  <header class="hero">
+    <h1 class="title">Vitalatro</h1>
+    <p class="tagline">Balatro en tu PS Vita, generado en tu propio navegador</p>
+  </header>
+
+  <section class="card intro">
+    <p>Vitalatro es una versión nativa para PS Vita hecha por fans. <strong>No incluye el juego</strong>:
+      necesitas <strong>tu propia copia legal de Balatro</strong> (versión <span class="mono">1.0.1o</span>),
+      ya sea el <span class="mono">Balatro.exe</span> de Steam o el <span class="mono">.apk</span> de Android.</p>
+    <p class="private"><span class="badge">100% local</span> Tu archivo <strong>no sale de tu ordenador</strong>:
+      esta página no tiene servidor y el VPK se crea aquí mismo, en tu navegador.</p>
+  </section>
+
+  <section class="card step" id="step-file">
+    <h2><span class="num">1</span> Elige tu copia de Balatro</h2>
+    <label class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" accept=".exe,.apk,application/vnd.android.package-archive,application/x-msdownload">
+      <span class="drop-icon" aria-hidden="true"></span>
+      <span class="drop-main">Arrastra aquí <span class="mono">Balatro.exe</span> o el <span class="mono">.apk</span></span>
+      <span class="drop-sub">o pulsa para buscarlo</span>
+    </label>
+    <details class="help">
+      <summary>¿Dónde está mi archivo?</summary>
+      <ul>
+        <li><strong>Steam (PC):</strong> en tu biblioteca, clic derecho en Balatro → <em>Administrar</em> →
+          <em>Ver archivos locales</em>. Allí está <span class="mono">Balatro.exe</span>.</li>
+        <li><strong>Android:</strong> el <span class="mono">.apk</span> instalado en tu dispositivo
+          (por ejemplo, extraído con una app de copia de seguridad de APK).</li>
+      </ul>
+    </details>
+    <div class="status" id="file-status" role="status" aria-live="polite" hidden></div>
+  </section>
+
+  <section class="card step" id="step-build" aria-disabled="true">
+    <h2><span class="num">2</span> Genera el VPK</h2>
+    <button class="btn primary" id="build" disabled>Generar VPK</button>
+    <div class="progress" id="progress" hidden>
+      <div class="bar"><div class="fill" id="progress-fill"></div></div>
+      <div class="progress-label"><span id="progress-text">Preparando…</span><span id="progress-pct">0%</span></div>
+    </div>
+    <div class="status" id="build-status" role="status" aria-live="polite" hidden></div>
+    <a class="btn download" id="download" hidden download="Vitalatro.vpk">Descargar Vitalatro.vpk</a>
+  </section>
+
+  <section class="card step" id="step-install">
+    <h2><span class="num">3</span> Instálalo en tu Vita</h2>
+    <ol class="install">
+      <li>Tu Vita necesita <strong>HENkaku / Ensō</strong> y <strong>VitaShell</strong>.</li>
+      <li>Copia <span class="mono">Vitalatro.vpk</span> a <span class="mono">ux0:/VPK/</span>
+        (por USB o FTP desde VitaShell: botón <span class="mono">SELECT</span>).</li>
+      <li>En VitaShell, entra en <span class="mono">ux0:/VPK/</span>, pulsa <span class="mono">X</span> sobre el VPK
+        y confirma la instalación.</li>
+      <li>Aparecerá la burbuja de Vitalatro en la pantalla de inicio. ¡A jugar!</li>
+    </ol>
+  </section>
+
+  <footer>
+    <p>Proyecto de fans sin relación con LocalThunk ni Playstack. Balatro es de sus respectivos dueños.
+      Esta página solo contiene código propio de Vitalatro: los gráficos, sonidos y textos del juego salen de tu copia.</p>
+  </footer>
+</main>
+
+<script src="js/background.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
