@@ -340,6 +340,10 @@ void run_command(Request *r) {
     } else if (c == "menu") {
         G.FUNCS["go_to_menu"](nullptr);
         finish(r, true, "");
+    } else if (c == "tutorial") {
+        // G.FUNCS.start_tutorial: a new run (replaces the profile's saved run) with the tutorial
+        G.FUNCS["start_tutorial"](nullptr);
+        finish(r, true, "");
     } else if (c == "debugtable") {
         G.delete_run();
         G.debug_table();
