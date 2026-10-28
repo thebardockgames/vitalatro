@@ -14,6 +14,7 @@ public:
     double random();           // math.random()        -> [0, 1)
     double random(double m);   // math.random(m)       -> [1, m]
     double random(double m, double n);  // math.random(m, n)
+    uint64_t n_random = 0, n_seed = 0;  // calls so far (VL_DUMP_RNG test hook, as REF_DUMP_RNG)
 
 private:
     uint64_t next_u64d();

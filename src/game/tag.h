@@ -51,4 +51,7 @@ public:
 };
 using TagRef = Ref<Tag>;
 
+// a booster pack opened for free in the middle of the play area (Charm, Meteor... tags; VL_OPEN_PACK test hook)
+void open_tag_pack(const std::string &key);
+
 }  // namespace vl

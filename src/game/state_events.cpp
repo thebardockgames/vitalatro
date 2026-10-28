@@ -118,7 +118,7 @@ static Value get_first_legendary(const std::string &key) {
 
 std::string generate_starting_seed() {
     const CursorState &ch = G.CONTROLLER->cursor_hover;
-    double x = ch.T.x, y = ch.T.y, time = ch.time;
+    double x = G.CONTROLLER->hover_x, y = G.CONTROLLER->hover_y, time = ch.time;
     if (G.GAME->get(K("stake")).num() >= 8) {
         // Gold stake: pick a seed whose first legendary has not been won with at gold stake yet
         TableRef r_leg = new_table();

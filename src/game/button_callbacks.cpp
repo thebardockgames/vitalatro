@@ -63,7 +63,9 @@ void overlay_menu(const TableRef &definition, const TableRef &config_in) {
     auto *detail_log = G.id_detail_log;
     G.id_detail_log = nullptr;
     const auto id = G.ID;
-    G.OVERLAY_MENU = new Moveable(0, 0, 0, 0);
+    Moveable *sentinel = new Moveable();  // not a Lua Moveable: kept out of G.I.MOVEABLE
+    sentinel->init(0, 0, 0, 0);
+    G.OVERLAY_MENU = sentinel;
     G.ID = id;
     G.id_detail_log = detail_log;
     G.STAGE_OBJECT_INTERRUPT = false;

@@ -16,12 +16,14 @@
 #include "game/blind.h"
 #include "game/card_factory.h"
 #include "engine/particles.h"
+#include "engine/random.h"
 #include "engine/text.h"
 #include "engine/ui.h"
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/run.h"
+#include "game/shop.h"
 #include "game/state_events.h"
 #include "game/tag.h"
 #include "game/ui_definitions.h"
@@ -191,6 +193,43 @@ int main(int argc, char **argv) {
         // VL_STAKE=n: the run's stake (default 1, as REF_STAKE)
         if (f == run_frame)
             vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", std::getenv("VL_STAKE") ? std::atof(std::getenv("VL_STAKE")) : 1.0}}));
+        // VL_SET="frame:a.b.c=value|...": G.GAME.a.b.c = value (a number, or else a string) before that
+        // frame's update (test hook, as REF_PRE "frame:G.GAME.a.b.c = value")
+        if (const char *vs = std::getenv("VL_SET"))
+            for (const char *p = vs; *p;) {
+                const char *e = std::strchr(p, '|');
+                std::string ent(p, e ? e - p : std::strlen(p));
+                p = e ? e + 1 : p + ent.size();
+                size_t colon = ent.find(':'), eq = ent.find('=');
+                if (colon == std::string::npos || eq == std::string::npos || std::atoi(ent.c_str()) != f) continue;
+                std::string path = ent.substr(colon + 1, eq - colon - 1), val = ent.substr(eq + 1);
+                vl::Table *tab = vl::G.GAME.get();
+                for (size_t dot; (dot = path.find('.')) != std::string::npos; path = path.substr(dot + 1))
+                    tab = tab->get(vl::Value(path.substr(0, dot))).table();
+                char *end = nullptr;
+                double num = std::strtod(val.c_str(), &end);
+                if (!val.empty() && end && *end == 0) tab->set(vl::Value(path), num);
+                else tab->set(vl::Value(path), vl::Value(val));
+            }
+        // VL_USE="frame:area:i|...": G.FUNCS.use_card({config = {ref_table = G[area].cards[i]}}) before that
+        // frame's update, as tapping its USE button (test hook; areas: consumeables, jokers, pack_cards,
+        // shop_jokers, shop_vouchers, shop_booster)
+        if (const char *vu = std::getenv("VL_USE"))
+            for (const char *p = vu; *p;) {
+                const char *e = std::strchr(p, '|');
+                std::string ent(p, e ? e - p : std::strlen(p));
+                p = e ? e + 1 : p + ent.size();
+                size_t c1 = ent.find(':'), c2 = ent.rfind(':');
+                if (c1 == std::string::npos || c2 == c1 || std::atoi(ent.c_str()) != f) continue;
+                std::string an = ent.substr(c1 + 1, c2 - c1 - 1);
+                int idx = std::atoi(ent.c_str() + c2 + 1) - 1;
+                vl::CardArea *a = an == "consumeables" ? vl::G.consumeables.get() : an == "jokers" ? vl::G.jokers.get() : an == "pack_cards" ? vl::G.pack_cards.get()
+                                : an == "shop_jokers" ? vl::G.shop_jokers.get() : an == "shop_vouchers" ? vl::G.shop_vouchers.get() : an == "shop_booster" ? vl::G.shop_booster.get() : nullptr;
+                if (a && idx >= 0 && idx < (int)a->cards.size()) vl::use_card(a->cards[idx].get(), nullptr);
+                else std::printf("VL_USE: no card %s %d\n", an.c_str(), idx + 1);
+            }
+        // VL_OPEN_PACK="frame:p_key": that booster opened for free as a tag opens it (test hook)
+        if (const char *op = std::getenv("VL_OPEN_PACK"); op && std::strchr(op, ':') && std::atoi(op) == f) vl::open_tag_pack(std::strchr(op, ':') + 1);
         // VL_GPU_EST=2 lists the large draws of each captured frame
         vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);
         // VL_ID_DETAIL="f,f": every Node created during those frames, by class (as REF_ID_DETAIL)
@@ -278,6 +317,9 @@ int main(int argc, char **argv) {
         }
         static const bool dump_id = std::getenv("VL_DUMP_ID") != nullptr;
         if (dump_id) std::printf("ID %d %d\n", f, vl::G.ID);  // node IDs (VL_DUMP_ID, vs REF_DUMP_ID)
+        // VL_DUMP_RNG=1: math.random / math.randomseed calls so far, per frame (as REF_DUMP_RNG)
+        static const bool dump_rng = std::getenv("VL_DUMP_RNG") != nullptr;
+        if (dump_rng) std::printf("RNG %d %llu %llu\n", f, (unsigned long long)vl::lua_math.n_random, (unsigned long long)vl::lua_math.n_seed);
         if (frames.count(f)) {
             std::string out = prefix + "_" + std::to_string(f) + ".png";
             shot(out);

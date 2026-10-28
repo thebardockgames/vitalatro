@@ -98,8 +98,6 @@ void Tag::set_ability() {
     }
 }
 
-namespace {
-// a booster pack opened for free in the middle of the play area (Charm, Meteor... tags)
 void open_tag_pack(const std::string &key) {
     const float w = G.CARD_W * 1.27f, h = G.CARD_H * 1.27f;
     Card *card = new Card(G.play->T->x + G.play->T->w / 2 - w / 2, G.play->T->y + G.play->T->h / 2 - h / 2, w, h, G.P_CARDS->get(K("empty")),
@@ -109,7 +107,6 @@ void open_tag_pack(const std::string &key) {
     use_card(card, nullptr);
     card->start_materialize();
 }
-}  // namespace
 
 Value Tag::apply_to_run(const TableRef &context) {
     if (triggered || !(config->get(K("type")) == context->get(K("type")))) return Value();
