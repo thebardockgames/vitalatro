@@ -18,14 +18,14 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Semilla `TUTORIAL` y su mazo/cartas forzadas en la primera partida
 
 ## 3. Desbloqueos y logros
-- [ ] `create_unlock_overlay`: pantalla de desbloqueo de joker/carta (`create_UIBox_card_unlock`)
-- [ ] Pantalla de desbloqueo de baraja (`create_UIBox_deck_unlock`)
-- [ ] `continue_unlock` / cola de varios desbloqueos seguidos (al terminar una partida)
-- [ ] Condiciones `round_win` (Matador, Troubadour, Hanging Chad)
-- [ ] Condiciones `hand_contents` (2 jokers)
-- [ ] Condiciones `discard_custom` (3 jokers)
-- [ ] `extra.playing_cards_created` en `playing_card_joker_effects` (contador para un logro)
-- [ ] Verificar que todos los logros se otorgan y muestran su aviso (`notify_alert`) como en el original
+- [x] `create_unlock_overlay`: pantalla de desbloqueo de joker/carta (`create_UIBox_card_unlock`)
+- [x] Pantalla de desbloqueo de baraja (`create_UIBox_deck_unlock`)
+- [x] `continue_unlock` / cola de varios desbloqueos seguidos (al terminar una partida)
+- [x] Condiciones `round_win` (Matador, Troubadour, Hanging Chad)
+- [x] Condiciones `hand_contents` (2 jokers)
+- [x] Condiciones `discard_custom` (3 jokers)
+- [x] `extra.playing_cards_created` en `playing_card_joker_effects` (contador para un logro)
+- [x] Verificar que todos los logros se otorgan y muestran su aviso (`notify_alert`) como en el original
 
 ## 4. Reglas y partida
 - [x] Baraja Anaglyph: Double Tag al vencer a un jefe (`Back:trigger_effect` context `eval`)

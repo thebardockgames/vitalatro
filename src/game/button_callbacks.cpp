@@ -56,11 +56,17 @@ void overlay_menu(const TableRef &definition, const TableRef &config_in) {
                              {"major", cfg->get(K("major")).truthy() ? cfg->get(K("major")) : Value((Object *)G.ROOM_ATTACH.get())},
                              {"bond", "Weak"},
                              {"no_esc", cfg->get(K("no_esc"))}});
-    // G.OVERLAY_MENU = true while the UIBox is built (code run meanwhile checks it)
+    // G.OVERLAY_MENU = true while the UIBox is built (code run meanwhile checks it); the placeholder
+    // is not a node of the original, so it gives its ID back (card tilts and the like follow IDs)
     G.STAGE_OBJECT_INTERRUPT = true;
+    auto *detail_log = G.id_detail_log;
+    G.id_detail_log = nullptr;
+    const auto id = G.ID;
     Moveable *sentinel = new Moveable();  // not a Lua Moveable: kept out of G.I.MOVEABLE
     sentinel->init(0, 0, 0, 0);
     G.OVERLAY_MENU = sentinel;
+    G.ID = id;
+    G.id_detail_log = detail_log;
     G.STAGE_OBJECT_INTERRUPT = false;
     UIBox *box = new UIBox(definition, config);
     G.OVERLAY_MENU = box;
@@ -667,6 +673,12 @@ void register_button_callbacks() {
     register_consumable_callbacks();
     register_booster_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
+    // G.FUNCS.continue_unlock: removes the overlay menu and immediately shows the next unlock screen if there is one
+    F["continue_unlock"] = [](UIElement *) {
+        exit_overlay_menu();
+        G.CONTROLLER->mod_cursor_context_layer(-2000);
+        G.E_MANAGER->update(0, true);
+    };
     F["options"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);
         overlay_menu(create_UIBox_options());

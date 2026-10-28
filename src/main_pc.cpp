@@ -20,6 +20,7 @@
 #include "engine/text.h"
 #include "engine/ui.h"
 #include "game/card.h"
+#include "game/functions.h"
 #include "game/g.h"
 #include "game/run.h"
 #include "game/shop.h"
@@ -123,11 +124,20 @@ int main(int argc, char **argv) {
             next_frame += 1.0 / 60;
             vl::time_sleep(next_frame - vl::time_now());
         }
-        // VL_GAME_SET="frame:key=number": G.GAME[key] = number at that frame (test hook)
+        // VL_GAME_SET="frame:key=number[,key=number]": G.GAME[key] = number at that frame (test hook)
         if (const char *gs = std::getenv("VL_GAME_SET"); gs && std::strchr(gs, ':') && std::atoi(gs) == f) {
-            std::string kv = std::strchr(gs, ':') + 1;
-            size_t eq = kv.find('=');
-            if (eq != std::string::npos) vl::G.GAME->set(vl::Value(kv.substr(0, eq)), std::atof(kv.c_str() + eq + 1));
+            // (key=false / key=true set a boolean: e.g. seeded=false so a seeded test run can unlock)
+            std::string all = std::strchr(gs, ':') + 1;
+            for (size_t p = 0; p < all.size();) {
+                size_t q = all.find(',', p);
+                if (q == std::string::npos) q = all.size();
+                const std::string kv = all.substr(p, q - p);
+                p = q + 1;
+                const size_t eq = kv.find('=');
+                if (eq == std::string::npos) continue;
+                const std::string v = kv.substr(eq + 1);
+                vl::G.GAME->set(vl::Value(kv.substr(0, eq)), v == "false" ? vl::Value(false) : v == "true" ? vl::Value(true) : vl::Value(std::atof(v.c_str())));
+            }
         }
         // VL_PROFILE_SET="frame:key=number": the current profile's key = number (test hook)
         if (const char *ps = std::getenv("VL_PROFILE_SET"); ps && std::strchr(ps, ':') && std::atoi(ps) == f) {
@@ -135,6 +145,41 @@ int main(int argc, char **argv) {
             size_t eq = kv.find('=');
             if (eq != std::string::npos)
                 vl::G.PROFILES->get(vl::G.SETTINGS->get(vl::Value("profile"))).table()->set(vl::Value(kv.substr(0, eq)), std::atof(kv.c_str() + eq + 1));
+        }
+        // VL_UNLOCK="frame:key,key": create_unlock_overlay(key) for each key at that frame (test hook)
+        if (const char *u = std::getenv("VL_UNLOCK"); u && std::strchr(u, ':') && std::atoi(u) == f) {
+            std::string keys = std::strchr(u, ':') + 1;
+            for (size_t p = 0; p <= keys.size();) {
+                size_t q = keys.find(',', p);
+                if (q == std::string::npos) q = keys.size();
+                vl::create_unlock_overlay(keys.substr(p, q - p));
+                p = q + 1;
+            }
+        }
+        // VL_HAND="frame:S_7[:m_gold],H_J,...|frame:...": the hand's cards (in order) become those cards at that frame
+        // (set_base / set_ability, as REF_PRE "G.hand.cards[i]:set_base(G.P_CARDS[k])")
+        if (const char *h = std::getenv("VL_HAND")) {
+            std::string all = h;
+            for (size_t p = 0; p < all.size();) {
+                size_t q = all.find('|', p);
+                if (q == std::string::npos) q = all.size();
+                std::string grp = all.substr(p, q - p);
+                p = q + 1;
+                if (std::atoi(grp.c_str()) != f || grp.find(':') == std::string::npos) continue;
+                grp = grp.substr(grp.find(':') + 1);
+                int i = 0;
+                for (size_t a = 0; a <= grp.size() && vl::G.hand;) {
+                    size_t b = grp.find(',', a);
+                    if (b == std::string::npos) b = grp.size();
+                    std::string c = grp.substr(a, b - a), enh;
+                    a = b + 1;
+                    if (size_t col = c.find(':'); col != std::string::npos) enh = c.substr(col + 1), c = c.substr(0, col);
+                    if (i >= (int)vl::G.hand->cards.size()) break;
+                    vl::Card *card = vl::G.hand->cards[i++].get();
+                    card->set_base(vl::G.P_CARDS->get(vl::Value(c)));
+                    if (!enh.empty()) card->set_ability(vl::G.P_CENTERS->get(vl::Value(enh)));
+                }
+            }
         }
         // VL_DOLLARS="frame:n": G.GAME.dollars = n at that frame (test hook)
         if (const char *d = std::getenv("VL_DOLLARS"); d && std::strchr(d, ':') && std::atoi(d) == f)
@@ -234,6 +279,17 @@ int main(int argc, char **argv) {
                     if (auto *o = dynamic_cast<vl::UIBox *>(e->config->get(vl::Value("object")).obj())) walk(o->UIRoot.get(), d + 1);
                 };
                 walk(ov->UIRoot.get(), 0);
+            }
+        // VL_PROBE_DECK=frame: the first title-type card area's cards (deck view), as REF_PROBE prints them
+        if (const char *pd = std::getenv("VL_PROBE_DECK"); pd && std::atoi(pd) == f)
+            for (size_t i = 0; i < vl::G.I.CARDAREA.size(); i++) {
+                auto *a = dynamic_cast<vl::CardArea *>(vl::G.I.CARDAREA[i]);
+                if (!a || !a->config->get(vl::Value("view_deck")).truthy()) continue;
+                std::printf("PROBE area %.4f %.4f %.4f %.4f cw %.4f\n", a->T->x, a->T->y, a->T->w, a->T->h, a->card_w);
+                for (auto &c : a->cards)
+                    std::printf("PROBE card %d VT %.4f %.4f %.4f %.4f r %.4f tilt %.2f %.2f %.4f\n", c->ID, c->VT.x, c->VT.y, c->VT.w, c->VT.h,
+                                c->VT.r, c->tilt_var.mx, c->tilt_var.my, c->tilt_var.amt);
+                break;
             }
         if (const char *pf = std::getenv("VL_PROBE_SIGN"); pf && std::atoi(pf) == f)
             if (auto *box = dynamic_cast<vl::UIBox *>(vl::G.SHOP_SIGN.get())) {

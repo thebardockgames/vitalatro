@@ -438,6 +438,12 @@ TableRef generate_card_ui(const Value &c, TableRef full, const Value &specific_v
     return full;
 }
 
+// ------------------------------------------------------------------ Card:generate_UIBox_unlock_table
+TableRef Card::generate_UIBox_unlock_table(bool hidden) {
+    Value loc_vars(vl::T({{"no_name", true}, {"not_hidden", !hidden}}));
+    return generate_card_ui(config->get(K("center")), nullptr, loc_vars, "Locked");
+}
+
 // ------------------------------------------------------------------ Card:generate_UIBox_ability_table
 TableRef Card::generate_UIBox_ability_table() {
     std::string card_type = ability->get(K("set")).truthy() ? ability->get(K("set")).to_string() : "None";
