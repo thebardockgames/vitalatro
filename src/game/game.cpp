@@ -147,15 +147,17 @@ bool in_overlay(Node *v) {
 
 // Vitalatro: with large menus on, a description popup (card, tag, blind...) is drawn enlarged
 // about the edge that touches what it describes, kept on screen. Popups never take input.
-void draw_popup_large(Node *v) {
+void draw_popup_large(Node *v, float scale = 1.5f) {
     auto *m = dynamic_cast<Moveable *>(v);
     if (!m) {
         draw_node(v);
         return;
     }
-    const float s = 1.5f, ppu = G.TILESCALE * G.TILESIZE, margin = 0.1f;
+    const float ppu = G.TILESCALE * G.TILESIZE, margin = 0.1f;
     const float W = gfx::screen_width() / ppu, H = gfx::screen_height() / ppu;
     const Transform &t = m->VT;
+    // no larger than the screen
+    const float s = std::max(1.f, std::min({scale, (W - 2 * margin) / std::max(t.w, 0.01f), (H - 2 * margin) / std::max(t.h, 0.01f)}));
     const float x = t.x + G.ROOM->T->x, y = t.y + G.ROOM->T->y;
     const std::string &type = m->alignment.type;
     float ax = x + t.w / 2, ay = y + t.h / 2;  // the anchor: the edge facing the described object
@@ -1884,12 +1886,17 @@ void Globals::draw() {
     if (SPLASH_LOGO) draw_node(SPLASH_LOGO.get());
     prof(1);
 
+    static const bool no_zoom = std::getenv("VL_NO_ZOOM") != nullptr;  // frame comparisons with the original
+    const bool large_menus = !no_zoom && SETTINGS->get(K("vl_large_menus")).truthy();
     if (!OVERLAY_MENU || !F_HIDE_BG) {
         I.UIBOX.each([&](Node *v) {
             auto *b = dynamic_cast<UIBox *>(v);
             if (b && !b->attention_text && !b->parent && v != OVERLAY_MENU.get() && v != screenwipe.get() && v != OVERLAY_TUTORIAL.get() &&
-                v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get())
-                draw_node(v);
+                v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get()) {
+                // the deck peek (L2) grows with large menus, like the description popups
+                if (v == deck_preview.get() && large_menus) draw_popup_large(v, 1.6f);
+                else draw_node(v);
+            }
         });
         prof(2);
         I.CARDAREA.each([](Moveable *v) {
