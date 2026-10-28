@@ -148,7 +148,9 @@ void EventManager::update(double dt, bool forced) {
     queue_timer += dt;
     if (queue_timer >= queue_last_processed + queue_dt || forced) {
         queue_last_processed += forced ? 0 : queue_dt;
-        for (int k = 0; k < QUEUE_COUNT; k++) {
+        // pairs(self.queues) visits the queues in this order in the original (LuaJIT's hash order)
+        static const Queue order[QUEUE_COUNT] = {UNLOCK, TUTORIAL, ACHIEVEMENT, OTHER, BASE};
+        for (Queue k : order) {
             auto &v = queues[k];
             bool blocked = false;
             size_t i = 0;

@@ -10,12 +10,12 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Coste por caja de la UI (~26 µs por caja en la Vita): seguir reduciendo copias de tablas en `draw_self`
 
 ## 2. Tutorial
-- [ ] `tutorial_controller` / `tutorial_part` / `tutorial_info` (state_events.lua): los pasos con Jimbo
-- [ ] `G.OVERLAY_TUTORIAL` (Jimbo, globo de texto, botón para avanzar) y su borrado en `delete_run`
-- [ ] Resaltados del tutorial (`OVERLAY_TUTORIAL.highlights`) en el dibujo
-- [ ] El foco del mando ignora a Jimbo (`node.jimbo` en el controlador)
-- [ ] `skip_tutorial_section` (saltar tutorial) y `start_tutorial`
-- [ ] Semilla `TUTORIAL` y su mazo/cartas forzadas en la primera partida
+- [x] `tutorial_controller` / `tutorial_part` / `tutorial_info` (state_events.lua): los pasos con Jimbo
+- [x] `G.OVERLAY_TUTORIAL` (Jimbo, globo de texto, botón para avanzar) y su borrado en `delete_run`
+- [x] Resaltados del tutorial (`OVERLAY_TUTORIAL.highlights`) en el dibujo
+- [x] El foco del mando ignora a Jimbo (`node.jimbo` en el controlador)
+- [x] `skip_tutorial_section` (saltar tutorial) y `start_tutorial`
+- [x] Semilla `TUTORIAL` y su mazo/cartas forzadas en la primera partida
 
 ## 3. Desbloqueos y logros
 - [x] `create_unlock_overlay`: pantalla de desbloqueo de joker/carta (`create_UIBox_card_unlock`)
