@@ -222,9 +222,15 @@ void BlindChipSprite::hover() {
             float r = 0.02f;
             juice_up(0.05f, &r);
             play_sound("chips1", (float)(lua_math.random() * 0.1 + 0.55), 0.12f);
-            config->set("h_popup", Value(create_UIBox_blind_popup(blind, true)));
+            config->set("h_popup", Value(create_UIBox_blind_popup(blind, discovered)));
             config->set("h_popup_config", Value(vl::T({{"align", "cl"}, {"offset", Value(vl::T({{"x", -0.1}, {"y", 0}}))}, {"parent", Value((Object *)this)}})));
             Node::hover();
+            if (Node *alert = children.get("alert")) {
+                alert->remove();
+                children.set("alert", nullptr);
+                blind.table()->set("alerted", true);
+                G.save_progress();
+            }
         }
     }
 }
@@ -553,8 +559,128 @@ TableRef challenge_list() {
                                     A({node(UIT_O, vl::T({{"id", "challenge_area"}, {"object", Value((Object *)new Moveable(0, 0, 0, 0))}}))}))}))}}));
 }
 
+namespace {
+// the alert badge on a newly discovered tag or blind in the collection (an immediate event)
+void alert_later(std::vector<Ref<Moveable>> targets) {
+    G.E_MANAGER->add_event(ev_immediate([targets] {
+        for (auto &v : targets) {
+            UIBox *a = new UIBox(create_UIBox_card_alert(), vl::T({{"align", "tri"}, {"offset", Value(vl::T({{"x", 0.1}, {"y", 0.1}}))}, {"parent", Value((Object *)v.get())}}));
+            v->children.set("alert", a);
+            a->states.collide.can = false;
+        }
+        return true;
+    }));
+}
+
+std::vector<Value> sorted_by_order(Table *pool) {
+    std::vector<Value> tab;
+    pool->each([&](const Value &, const Value &v) { tab.push_back(v); });
+    std::sort(tab.begin(), tab.end(), [](const Value &a, const Value &b) { return fld(a, "order").num() < fld(b, "order").num(); });
+    return tab;
+}
+}  // namespace
+
+// create_UIBox_your_collection_tags()
+TableRef create_UIBox_your_collection_tags() {
+    TableRef tag_matrix[4] = {new_table(), new_table(), new_table(), new_table()};
+    std::vector<Ref<Moveable>> tags_to_be_alerted;
+    std::vector<Value> tag_tab = sorted_by_order(G.P_TAGS.get());
+    for (int k = 1; k <= (int)tag_tab.size(); k++) {
+        const Value &v = tag_tab[k - 1];
+        const bool discovered = fld(v, "discovered").truthy();
+        Tag *temp_tag = new Tag(fld(v, "key"), true);
+        if (!discovered) temp_tag->hide_ability = true;
+        TagSprite *temp_tag_sprite = nullptr;
+        TableRef temp_tag_ui = temp_tag->generate_UI(0.8f, &temp_tag_sprite);
+        tag_matrix[(k - 1) / 6]->push(node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.1}}), A({Value(temp_tag_ui)})));
+        if (discovered && !fld(v, "alerted").truthy()) tags_to_be_alerted.push_back(Ref<Moveable>(temp_tag_sprite));
+    }
+    alert_later(tags_to_be_alerted);
+
+    TableRef rows = new_table();
+    for (auto &m : tag_matrix) rows->push(node(UIT_R, vl::T({{"align", "cm"}}), m));
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", "your_collection"},
+         {"contents", Value(A({node(UIT_C, vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", col("BLACK")}, {"padding", 0.1}, {"emboss", 0.05}}),
+                                    A({node(UIT_C, vl::T({{"align", "cm"}}), A({node(UIT_R, vl::T({{"align", "cm"}}), rows)}))}))}))}}));
+}
+
+// create_UIBox_your_collection_blinds(exit)
+TableRef create_UIBox_your_collection_blinds(const char *exit) {
+    TableRef blind_matrix[6] = {new_table(), new_table(), new_table(), new_table(), new_table(), new_table()};
+    std::vector<Ref<Moveable>> blinds_to_be_alerted;
+    std::vector<Value> blind_tab = sorted_by_order(G.P_BLINDS.get());
+    for (int k = 1; k <= (int)blind_tab.size(); k++) {
+        const Value &v = blind_tab[k - 1];
+        const bool discovered = fld(v, "discovered").truthy();
+        const Value p = discovered ? fld(v, "pos") : fld(G.b_undiscovered, "pos");
+        SpritePos sp;
+        sp.x = (float)fld(p, "x").num();
+        sp.y = (float)fld(p, "y").num();
+        auto *temp_blind = new BlindChipSprite(0, 0, 1.3f, 1.3f, &G.ANIMATION_ATLAS["blind_chips"], sp, v);
+        temp_blind->discovered = discovered;
+        temp_blind->config->set("force_focus", true);
+        if (k == 1) {
+            Ref<Moveable> first(temp_blind);
+            G.E_MANAGER->add_event(ev_immediate([first] {
+                G.CONTROLLER->snap_to(first.get());
+                return true;
+            }));
+        }
+        if (discovered && !fld(v, "alerted").truthy()) blinds_to_be_alerted.push_back(Ref<Moveable>(temp_blind));
+        TableRef nodes = new_table();
+        if (k == 6 || k == 16 || k == 26) nodes->push(node(UIT_B, vl::T({{"h", 0.2}, {"w", 0.5}})));
+        nodes->push(node(UIT_O, vl::T({{"object", Value((Object *)temp_blind)}, {"focus_with_object", true}})));
+        if (k == 5 || k == 15 || k == 25) nodes->push(node(UIT_B, vl::T({{"h", 0.2}, {"w", 0.5}})));
+        blind_matrix[(k - 1) / 5]->push(node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0.1}}), nodes));
+    }
+    alert_later(blinds_to_be_alerted);
+
+    const double furthest = fld(fld(Value(profile()), "high_scores"), "furthest_ante").get(K("amt")).num();
+    TableRef ante_amounts = new_table();
+    for (int i = 1; i <= (int)std::min(16.0, std::max(16.0, furthest)); i++) {
+        const double spacing = 1 - std::min(20.0, std::max(15.0, furthest)) * 0.06;
+        if (spacing > 0 && i > 1) ante_amounts->push(node(UIT_R, vl::T({{"minh", spacing}}), new_table()));
+        auto *blind_chip = new Sprite(0, 0, 0.2f, 0.2f, &G.ASSET_ATLAS[G.SETTINGS->get(K("colourblind_option")).truthy() ? "ui_2" : "ui_1"], SpritePos{});
+        blind_chip->states.drag.can = false;
+        ante_amounts->push(node(
+            UIT_R, vl::T({{"align", "cm"}, {"padding", 0.03}}),
+            A({node(UIT_C, vl::T({{"align", "cm"}, {"minw", 0.7}}),
+                    A({node(UIT_T, vl::T({{"text", Value((double)i)}, {"scale", 0.4}, {"colour", col("FILTER")}, {"shadow", true}}))})),
+               node(UIT_C, vl::T({{"align", "cr"}, {"minw", 2.8}}),
+                    A({node(UIT_O, vl::T({{"object", Value((Object *)blind_chip)}})), node(UIT_C, vl::T({{"align", "cm"}, {"minw", 0.03}, {"minh", 0.01}}), new_table()),
+                       node(UIT_T, vl::T({{"text", Value(number_format(Value(get_blind_amount(i))))},
+                                          {"scale", 0.4},
+                                          {"colour", i <= furthest ? col("RED") : col("JOKER_GREY")},
+                                          {"shadow", true}}))}))})));
+    }
+
+    TableRef matrix_rows = new_table();
+    for (auto &m : blind_matrix) matrix_rows->push(node(UIT_R, vl::T({{"align", "cm"}}), m));
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", exit ? exit : "your_collection"},
+         {"contents",
+          Value(A({node(UIT_C, vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", col("BLACK")}, {"padding", 0.1}, {"emboss", 0.05}}),
+                        A({node(UIT_C, vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", col("L_BLACK")}, {"padding", 0.1}, {"force_focus", true}, {"focus_args", Value(vl::T({{"nav", "tall"}}))}}),
+                                A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}),
+                                        A({node(UIT_C, vl::T({{"align", "cm"}, {"minw", 0.7}}),
+                                                A({node(UIT_T, vl::T({{"text", localize("k_ante_cap")}, {"scale", 0.4}, {"colour", Value(lighten(col("FILTER"), 0.2f))}, {"shadow", true}}))})),
+                                           node(UIT_C, vl::T({{"align", "cr"}, {"minw", 2.8}}),
+                                                A({node(UIT_T, vl::T({{"text", localize("k_base_cap")}, {"scale", 0.4}, {"colour", Value(lighten(col("RED"), 0.2f))}, {"shadow", true}}))}))})),
+                                   node(UIT_R, vl::T({{"align", "cm"}}), ante_amounts)})),
+                           node(UIT_C, vl::T({{"align", "cm"}}), A({node(UIT_R, vl::T({{"align", "cm"}}), matrix_rows)}))}))}))}}));
+}
+
 void register_challenge_callbacks() {
     auto &F = G.FUNCS;
+    F["your_collection_tags"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_your_collection_tags());
+    };
+    F["your_collection_blinds"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_your_collection_blinds(nullptr));
+    };
     F["challenge_list"] = [](UIElement *e) {
         G.SETTINGS->set("paused", true);
         overlay_menu(challenge_list());

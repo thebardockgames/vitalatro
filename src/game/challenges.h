@@ -27,6 +27,7 @@ public:
     void stop_hover() override;
     Value blind;
     bool hovering = false;
+    bool discovered = true;  // the collection shows undiscovered blinds with a hidden popup
 };
 
 }  // namespace vl

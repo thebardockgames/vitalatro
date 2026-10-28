@@ -24,6 +24,17 @@ const Map kButtons[] = {{platform::BTN_UP, "dpup"},      {platform::BTN_DOWN, "d
                         {platform::BTN_SQUARE, "x"},      {platform::BTN_TRIANGLE, "y"},       {platform::BTN_L, "leftshoulder"},
                         {platform::BTN_R, "rightshoulder"}, {platform::BTN_START, "start"},     {platform::BTN_SELECT, "back"}};
 
+// The Vita has no L2/R2: an L or R press nothing else claims (no shoulder button pip on screen, no
+// menu open) acts as the trigger instead, so R views the deck and holding L peeks at it. The
+// shoulder stays a trigger until it is released.
+bool shoulder_free(const char *shoulder) {
+    Controller &C = *G.CONTROLLER;
+    if (G.OVERLAY_MENU) return false;
+    auto it = C.button_registry.find(shoulder);
+    return it == C.button_registry.end() || it->second.empty() || !it->second.front().node || it->second.front().node->under_overlay;
+}
+bool as_trigger[2] = {false, false};
+
 // LOVE reports stick axes after the controller mapping's deadzone; values are -1..1
 float axis(float v) { return std::fabs(v) < 0.05f ? 0.f : v; }
 }  // namespace
@@ -33,14 +44,19 @@ void input_frame(const platform::Input &in) {
     // love.gamepadpressed / love.gamepadreleased
     for (const Map &m : kButtons) {
         bool now = in.buttons & m.bit, before = prev.buttons & m.bit;
+        const int sh = m.bit == platform::BTN_L ? 0 : m.bit == platform::BTN_R ? 1 : -1;
+        const char *button = m.button;
         if (now && !before) {
+            if (sh >= 0) as_trigger[sh] = shoulder_free(m.button);
+            if (sh >= 0 && as_trigger[sh]) button = sh == 0 ? "triggerleft" : "triggerright";
             C.set_gamepad();
-            C.set_HID_flags("button", m.button);
-            C.button_press(m.button);
+            C.set_HID_flags("button", button);
+            C.button_press(button);
         } else if (!now && before) {
+            if (sh >= 0 && as_trigger[sh]) button = sh == 0 ? "triggerleft" : "triggerright";
             C.set_gamepad();
-            C.set_HID_flags("button", m.button);
-            C.button_release(m.button);
+            C.set_HID_flags("button", button);
+            C.button_release(button);
         }
     }
     // love.joystickaxis: any axis beyond 0.2 switches to axis input

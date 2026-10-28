@@ -389,8 +389,51 @@ void open_run_setup(const std::string &from) {
         if (G.OVERLAY_MENU) dynamic_cast<UIBox *>(G.OVERLAY_MENU.get())->config->set("no_esc", true);
 }
 
+// create_UIBox_your_collection_decks()
+TableRef create_UIBox_your_collection_decks() {
+    G.GAME->set("viewed_back", Value((Object *)new Back(G.P_CENTERS->get(K("b_red")))));
+
+    CardArea *area = new CardArea(G.ROOM->T->x + 0.2f * G.ROOM->T->w / 2, G.ROOM->T->h, 1.2f * G.CARD_W, 1.2f * G.CARD_H,
+                                  vl::T({{"card_limit", 52}, {"type", "deck"}, {"highlight_limit", 0}}));
+    for (int i = 1; i <= 52; i++) {
+        Card *card = new Card(G.ROOM->T->x + 0.2f * G.ROOM->T->w / 2, G.ROOM->T->h, G.CARD_W * 1.2f, G.CARD_H * 1.2f, pseudorandom_element(Value(G.P_CARDS)),
+                              G.P_CENTERS->get(K("c_base")), vl::T({{"playing_card", i}, {"viewed_back", true}}));
+        card->sprite_facing = "back";
+        card->facing = "back";
+        area->emplace(card);
+        if (i == 52) {
+            G.sticker_card = card;
+            card->sticker = get_deck_win_sticker(viewed_center());
+        }
+    }
+
+    TableRef ordered_names = new_table();
+    Table *backs = G.P_CENTER_POOLS->get(K("Back")).table();
+    for (int k = 1; k <= backs->len(); k++) ordered_names->push(fld(backs->get(k), "name"));
+
+    Value mid = node(
+        UIT_R, vl::T({{"align", "cm"}, {"minw", 2.5}, {"padding", 0.1}, {"r", 0.1}, {"colour", col("BLACK")}, {"emboss", 0.05}}),
+        A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.2}, {"colour", col("BLACK")}, {"r", 0.2}}),
+                A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0}}), A({node(UIT_O, vl::T({{"object", obj(area)}}))})),
+                   node(UIT_C, vl::T({{"align", "tm"}, {"minw", 3.7}, {"minh", 2.1}, {"r", 0.1}, {"colour", col("L_BLACK")}, {"padding", 0.1}}),
+                        A({node(UIT_R, vl::T({{"align", "cm"}, {"emboss", 0.1}, {"r", 0.1}, {"minw", 4}, {"maxw", 4}, {"minh", 0.6}}),
+                                A({node(UIT_O, vl::T({{"func", "RUN_SETUP_check_back_name"}, {"object", obj(new Moveable(0, 0, 0, 0))}}))})),
+                           node(UIT_R, vl::T({{"align", "cm"}, {"colour", col("WHITE")}, {"emboss", 0.1}, {"minh", 2.2}, {"r", 0.1}}),
+                                A({node(UIT_O, vl::T({{"id", Value(viewed_back()->name)},
+                                                      {"func", "RUN_SETUP_check_back"},
+                                                      {"object", obj(new UIBox(viewed_back()->generate_UI(), vl::T({{"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}})))}}))}))}))}))}));
+    return create_UIBox_generic_options(vl::T(
+        {{"back_func", "your_collection"},
+         {"contents", Value(A({Value(create_option_cycle(vl::T({{"options", Value(ordered_names)}, {"opt_callback", "change_viewed_back"}, {"current_option", 1},
+                                                                 {"colour", col("RED")}, {"w", 4.5}, {"focus_args", Value(vl::T({{"snap_to", true}}))}, {"mid", mid}})))}))}}));
+}
+
 void register_run_setup_callbacks() {
     auto &F = G.FUNCS;
+    F["your_collection_decks"] = [](UIElement *) {
+        G.SETTINGS->set("paused", true);
+        overlay_menu(create_UIBox_your_collection_decks());
+    };
     auto &FT = G.FUNCS_T;
     F["setup_run"] = [](UIElement *e) {
         const Value id = e ? e->config->get(K("id")) : Value();

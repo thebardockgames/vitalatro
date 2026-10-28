@@ -771,6 +771,10 @@ TableRef create_button_binding_pip(const TableRef &args) {
     for (auto &m : kMap)
         if (button.equals(m.first)) x = m.second;
     if (G.F_SWAP_AB_PIPS && (button.equals("a") || button.equals("b"))) x = 1 - x;
+#ifdef VL_VITA
+    // no L2/R2 on the Vita: a free L or R stands in for them (game/input.cpp)
+    if (x == 6 || x == 7) x -= 2;
+#endif
     const std::string &con = G.CONTROLLER->GAMEPAD_CONSOLE;
     SpritePos p;
     p.x = (float)x;
