@@ -22,6 +22,7 @@
 #include "game/sound.h"
 #include "game/state_events.h"
 #include "game/tag.h"
+#include "game/tutorial.h"
 #include "game/ui_definitions.h"
 
 namespace vl {
@@ -1001,9 +1002,11 @@ void drag_target(Moveable *cover, const Value &colour_v, TableRef text, Card *ca
                                        .table()),
                           vl::T({{"align", "tli"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}, {"major", obj(cover)}}), &t0);
     DT->attention_text = true;
+    tutorial_highlight_add(DT);
     Ref<UIBox> dref(DT);
     EventConfig e = ev_after(0, [dref] {
         if (!G.CONTROLLER->dragging.target && dref) {
+            tutorial_highlight_remove(dref.get());
             dref->remove();
             return true;
         }
@@ -1045,7 +1048,10 @@ void create_drag_target_from_card(Card *card) {
         buy_loc->push(Value("$" + Value(card->cost).to_string()));
         drag_target(G.DRAG_TARGETS["S_buy"].get(), Value(adjust_alpha(G.colour("GREEN"), 0.9f)), buy_loc, card, [](Card *o) { return can_buy(o); },
                     [](Card *o) {
-                        if (o->area == G.shop_jokers.get() && can_buy(o)) buy_from_shop(o, "buy", nullptr);
+                        if (o->area == G.shop_jokers.get() && can_buy(o)) {
+                            if (tutorial_listening("buy_from_shop")) tut_next();
+                            buy_from_shop(o, "buy", nullptr);
+                        }
                         else if ((o->area == G.shop_vouchers.get() || o->area == G.shop_booster.get()) && can_buy(o)) use_card(o, nullptr);
                     });
         if (can_buy_and_use(card)) {
@@ -1085,7 +1091,10 @@ void create_drag_target_from_card(Card *card) {
             drag_target(G.DRAG_TARGETS["C_use"].get(), Value(adjust_alpha(G.colour("RED"), 0.9f)), A({localize("b_use")}), card,
                         [](Card *o) { return o->can_use_consumeable(); },
                         [](Card *o) {
-                            if (o->can_use_consumeable()) use_card(o, nullptr);
+                            if (o->can_use_consumeable()) {
+                                use_card(o, nullptr);
+                                if (tutorial_listening("use_card")) tut_next();
+                            }
                         });
     }
 }

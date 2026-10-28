@@ -18,6 +18,7 @@
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/state_events.h"
+#include "game/tutorial.h"
 #include "game/sound.h"
 #include "game/ui_definitions.h"
 #include "platform/platform.h"
@@ -672,6 +673,7 @@ void register_button_callbacks() {
     register_challenge_callbacks();
     register_consumable_callbacks();
     register_booster_callbacks();
+    register_tutorial_callbacks();
     F["exit_overlay_menu"] = [](UIElement *) { exit_overlay_menu(); };
     // G.FUNCS.continue_unlock: removes the overlay menu and immediately shows the next unlock screen if there is one
     F["continue_unlock"] = [](UIElement *) {

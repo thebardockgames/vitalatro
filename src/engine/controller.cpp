@@ -858,8 +858,9 @@ bool Controller::is_node_focusable(Node *node) {
             if (node->is_card()) {
                 Card *c = static_cast<Card *>(node);
                 // (the deck itself is a CardArea, never a Card: `node == G.deck` cannot hold)
-                if ((c->facing == "front" || (G.hand && c->area == G.hand.get()) || (G.jokers && c->area == G.jokers.get())) && c->states.hover.can)
-                    ret = true;  // TODO(tutorial): not node.jimbo
+                if ((c->facing == "front" || (G.hand && c->area == G.hand.get()) || (G.jokers && c->area == G.jokers.get())) && c->states.hover.can &&
+                    !c->jimbo)
+                    ret = true;
             }
             if (node->config->get(K("force_focus")).truthy()) ret = true;
             if (node->config->get(K("button")).truthy() || (u && u->tutorial_disabled.truthy())) ret = true;
