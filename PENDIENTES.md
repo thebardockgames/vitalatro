@@ -43,6 +43,7 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Mipmaps manuales para texturas (`TODO(manual-mips)`), cartas pequeñas igual que en PC
 - [ ] Fondo: campo k=1 en núcleos de CPU en vez de k=2 a media tasa (decisión pendiente)
 - [ ] Revisar los 15 idiomas en pantalla (fuentes CJK: SC/TC están a tamaño 47)
+- [ ] Tutorial: texto del globo de Jimbo más grande en la Vita (casi no se lee; con la opción de menús grandes)
 
 ## 6. Regresión completa contra el original
 - [x] `jokerbatch` (todos los jokers)
