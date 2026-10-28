@@ -63,15 +63,21 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 
 ## 8. Distribución: web que genera el VPK en el navegador (sin datos de Balatro en nada que publiquemos)
 - [ ] El juego carga todos los recursos desde `ux0:data/Vitalatro/` (o desde dentro del VPK generado), nada embebido
-- [ ] Biblioteca C++ "asset builder" que reemplaza `tools/build_assets.py`: leer el zip del `Balatro.exe` (LOVE fusionado)
+- [x] Biblioteca C++ "asset builder" que reemplaza `tools/build_assets.py`: leer el zip del `Balatro.exe` (LOVE fusionado)
       o del `.apk`, verificar versión (1.0.1o), extraer texturas/sonidos, datos con Lua 5.1 embebido (`extract_data.lua`),
       fuentes como LOVE (`bake_fonts.py`), iconos de botones Vita (`vita_pips.py`)
-- [ ] Compilar esa biblioteca a WebAssembly (Emscripten) + herramienta de línea de comandos para PC (mismo resultado byte a byte)
-- [ ] Armar el VPK en el navegador: zip con nuestro `eboot.bin`, `sce_sys`, shaders compilados y los recursos generados
+- [x] Compilar esa biblioteca a WebAssembly (Emscripten) + herramienta de línea de comandos para PC (mismo resultado byte a byte)
+- [x] Armar el VPK en el navegador: zip con nuestro `eboot.bin`, `sce_sys`, shaders compilados y los recursos generados
 - [ ] Shaders: reescribir los que aún son conversión directa del original (fórmulas propias equivalentes, verificadas),
       y publicar solo nuestros `.gxp` compilados
-- [ ] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
+- [x] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
 - [ ] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
+- [ ] `sce_sys` (icono, fondo y logo del LiveArea) es arte de Balatro: quitarlo del repo y de su historial antes de publicarlo
+      (la web ya genera los suyos a partir de los archivos del usuario)
+- [ ] Datos deterministas: generar `build/assets_*/data` con `vl_asset_builder` (el LuaJIT de WSL baraja el orden de las tablas
+      en cada ejecución); revisar el orden de empates en los pools (Edition, Consumeables, Tarot_Planet) y su efecto en el RNG
+- [ ] Copia de Steam (PC): probar el juego con sus datos (crt 70, sin rumble, `icons.png` distinto, textos de collabs)
+- [ ] Recompilar el eboot de la Vita antes de armar el sitio (el de `build/vita` es viejo) y publicar en GitHub Pages
 - [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
 
 ## Fuera de alcance (del original, a propósito)
