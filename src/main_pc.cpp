@@ -241,6 +241,17 @@ int main(int argc, char **argv) {
                 };
                 walk(ov->UIRoot.get(), 0);
             }
+        // VL_PROBE_DECK=frame: the first title-type card area's cards (deck view), as REF_PROBE prints them
+        if (const char *pd = std::getenv("VL_PROBE_DECK"); pd && std::atoi(pd) == f)
+            for (size_t i = 0; i < vl::G.I.CARDAREA.size(); i++) {
+                auto *a = dynamic_cast<vl::CardArea *>(vl::G.I.CARDAREA[i]);
+                if (!a || !a->config->get(vl::Value("view_deck")).truthy()) continue;
+                std::printf("PROBE area %.4f %.4f %.4f %.4f cw %.4f\n", a->T->x, a->T->y, a->T->w, a->T->h, a->card_w);
+                for (auto &c : a->cards)
+                    std::printf("PROBE card %d VT %.4f %.4f %.4f %.4f r %.4f tilt %.2f %.2f %.4f\n", c->ID, c->VT.x, c->VT.y, c->VT.w, c->VT.h,
+                                c->VT.r, c->tilt_var.mx, c->tilt_var.my, c->tilt_var.amt);
+                break;
+            }
         if (const char *pf = std::getenv("VL_PROBE_SIGN"); pf && std::atoi(pf) == f)
             if (auto *box = dynamic_cast<vl::UIBox *>(vl::G.SHOP_SIGN.get())) {
                 auto *e = dynamic_cast<vl::UIElement *>(box->UIRoot->children.at(0)->children.at(0)->children.at(0));

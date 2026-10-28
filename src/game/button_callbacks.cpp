@@ -56,9 +56,15 @@ void overlay_menu(const TableRef &definition, const TableRef &config_in) {
                              {"major", cfg->get(K("major")).truthy() ? cfg->get(K("major")) : Value((Object *)G.ROOM_ATTACH.get())},
                              {"bond", "Weak"},
                              {"no_esc", cfg->get(K("no_esc"))}});
-    // G.OVERLAY_MENU = true while the UIBox is built (code run meanwhile checks it)
+    // G.OVERLAY_MENU = true while the UIBox is built (code run meanwhile checks it); the placeholder
+    // is not a node of the original, so it gives its ID back (card tilts and the like follow IDs)
     G.STAGE_OBJECT_INTERRUPT = true;
+    auto *detail_log = G.id_detail_log;
+    G.id_detail_log = nullptr;
+    const auto id = G.ID;
     G.OVERLAY_MENU = new Moveable(0, 0, 0, 0);
+    G.ID = id;
+    G.id_detail_log = detail_log;
     G.STAGE_OBJECT_INTERRUPT = false;
     UIBox *box = new UIBox(definition, config);
     G.OVERLAY_MENU = box;
