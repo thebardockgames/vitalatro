@@ -45,14 +45,14 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Revisar los 15 idiomas en pantalla (fuentes CJK: SC/TC están a tamaño 47)
 
 ## 6. Regresión completa contra el original
-- [ ] `jokerbatch` (todos los jokers)
-- [ ] `tagbatch` (todas las etiquetas)
-- [ ] `bossbatch` (los 28 jefes)
-- [ ] Consumibles: todos los tarots, planetas y espectrales
-- [ ] Vouchers: los 32
-- [ ] Barajas: las 15 y las 8 stakes
-- [ ] Retos: los 20 (inicio y reglas)
-- [ ] Sobres: los 5 tipos con sus variantes
+- [x] `jokerbatch` (todos los jokers)
+- [x] `tagbatch` (todas las etiquetas; Orbital pendiente: el original se cuelga si se agrega fuera de un salto de ciega)
+- [x] `bossbatch` (los 28 jefes)
+- [x] Consumibles: todos los tarots, planetas y espectrales
+- [x] Vouchers: los 32
+- [x] Barajas: las 15 y las 8 stakes
+- [x] Retos: los 20 (inicio y reglas)
+- [x] Sobres: los 5 tipos con sus variantes
 
 ## 7. Verificar en la Vita contigo
 - [ ] Guardar y continuar partida (tienda, mitad de mano, sobre abierto)
