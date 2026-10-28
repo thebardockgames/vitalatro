@@ -127,6 +127,10 @@ public:
     float ambient_tilt = 0.2f;
     bool has_ambient_tilt = true;
     float send_to_shader[2] = {0, 0};
+    // ARGS.send_to_shader is nil until a shadow layer pass sets it: cards drawn only on the 'card'
+    // layer (the deck view) send nothing, and the shaders keep their last values, as in LOVE
+    float *send_args() { return has_send_to_shader ? send_to_shader : nullptr; }
+    bool has_send_to_shader = false;
     bool removed = false;
     bool lucky_trigger = false, shattered = false, destroyed = false;
     bool getting_sliced = false, vampired = false;

@@ -289,7 +289,7 @@ int main(int argc, char **argv) {
                 for (auto &c : a->cards)
                     std::printf("PROBE card %d VT %.4f %.4f %.4f %.4f r %.4f tilt %.2f %.2f %.4f\n", c->ID, c->VT.x, c->VT.y, c->VT.w, c->VT.h,
                                 c->VT.r, c->tilt_var.mx, c->tilt_var.my, c->tilt_var.amt);
-                break;
+                for (auto &c : a->cards) std::printf("PROBE debuff %d %d\n", c->ID, (int)c->debuff);
             }
         if (const char *pf = std::getenv("VL_PROBE_SIGN"); pf && std::atoi(pf) == f)
             if (auto *box = dynamic_cast<vl::UIBox *>(vl::G.SHOP_SIGN.get())) {

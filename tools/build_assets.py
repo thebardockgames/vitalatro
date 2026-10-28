@@ -287,7 +287,37 @@ void vl_varyings(vec2 texture_coords, out vec4 v0, out vec4 v1, out vec4 v2)
 }
 #endif"""
 
+# debuff.fs without the HSL round trip: at a fixed hue and lightness each channel is l + C * k(hue),
+# with chroma C = high - low = S * (1 - |2l - 1|). The effect only rescales S and l, so the new
+# colour is l' + C' * (c - l) / C, and the cross's hue 1 (red) is the direction (.5, -.5, -.5),
+# also HSL()'s hue for a grey input. Same results up to rounding, branchless.
+DEBUFF = """vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
+{
+    vec4 tex = Texel(texture, texture_coords);
+    vec2 uv = (((texture_coords)*(image_details)) - texture_details.xy*texture_details.ba)/texture_details.ba;
+    MY_HIGHP_OR_MEDIUMP vec3 c = tex.rgb*0.8 + vec3(0.2, 0., 0.);
+    MY_HIGHP_OR_MEDIUMP number low = min(c.r, min(c.g, c.b));
+    MY_HIGHP_OR_MEDIUMP number high = max(c.r, max(c.g, c.b));
+    MY_HIGHP_OR_MEDIUMP number delta = high - low;
+    MY_HIGHP_OR_MEDIUMP number l = .5 * (high + low);
+    MY_HIGHP_OR_MEDIUMP number grey = 1. - step(1e-20, delta);
+    MY_HIGHP_OR_MEDIUMP vec3 red = vec3(.5, -.5, -.5);
+    MY_HIGHP_OR_MEDIUMP vec3 k = mix((c - l) / max(delta, 1e-20), red, grey);
+    MY_HIGHP_OR_MEDIUMP number width = 0.1 * (1. - step(abs(debuff.g), 0.));
+    MY_HIGHP_OR_MEDIUMP number d1 = uv.x + uv.y;
+    MY_HIGHP_OR_MEDIUMP number d2 = (1. - uv.x) + uv.y;
+    // (d > 1 - width && d < 1 + width) for either diagonal, strict as in the original
+    MY_HIGHP_OR_MEDIUMP number test = max((1. - step(d1, 1. - width)) * (1. - step(1. + width, d1)), (1. - step(d2, 1. - width)) * (1. - step(1. + width, d2)));
+    k = mix(k, red, test);
+    MY_HIGHP_OR_MEDIUMP number s2 = mix(0.25, 0.7, test);
+    MY_HIGHP_OR_MEDIUMP number l2 = l * mix(0.7, 0.8, test);
+    MY_HIGHP_OR_MEDIUMP number c2 = s2 * (1. - abs(2. * l2 - 1.));
+    tex = vec4(l2 + c2 * k, tex.a * mix(0.3, 1., test));
+    return dissolve_mask(tex*colour, texture_coords, uv);
+}"""
+
 FAST_EFFECTS = {
+    'debuff': DEBUFF,
     'voucher': PACK_SHINE.replace('{U}', 'voucher').replace('{DELTA}', 'high-low'),
     'booster': PACK_SHINE.replace('{U}', 'booster').replace('{DELTA}', 'max(high-low, low*0.7)'),
     'holo': HOLO,

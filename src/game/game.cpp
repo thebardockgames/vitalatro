@@ -217,6 +217,23 @@ void update_overlay_zoom() {
     z.cx = t.x + t.w / 2 + G.ROOM->T->x;
     z.cy = t.y + t.h / 2 + G.ROOM->T->y;
     z.on = z.s > 1.02f;
+    // the enlarged panel on screen (it is opaque): what lies fully under it is not drawn
+    XY a = z.zoom({t.x + G.ROOM->T->x, t.y + G.ROOM->T->y}), b = z.zoom({t.x + t.w + G.ROOM->T->x, t.y + t.h + G.ROOM->T->y});
+    z.px0 = a.x;
+    z.py0 = a.y;
+    z.px1 = b.x;
+    z.py1 = b.y;
+}
+
+// Vitalatro: with an enlarged overlay panel, a top-level object entirely behind it (with a margin
+// for shadows, tilt and the tags hanging off cards) is hidden and is not drawn
+bool hidden_by_overlay(Node *v) {
+    const auto &z = G.overlay_zoom;
+    auto *m = dynamic_cast<Moveable *>(v);
+    if (!z.on || !m || in_overlay(v)) return false;
+    const float pad = 0.4f, inset = 0.25f;
+    const float x = m->VT.x + G.ROOM->T->x, y = m->VT.y + G.ROOM->T->y;
+    return x - pad > z.px0 + inset && y - pad > z.py0 + inset && x + m->VT.w + pad < z.px1 - inset && y + m->VT.h + pad < z.py1 - inset;
 }
 }  // namespace
 
@@ -1886,6 +1903,7 @@ void Globals::draw() {
     if (SPLASH_LOGO) draw_node(SPLASH_LOGO.get());
     prof(1);
 
+    update_overlay_zoom();
     static const bool no_zoom = std::getenv("VL_NO_ZOOM") != nullptr;  // frame comparisons with the original
     const bool large_menus = !no_zoom && SETTINGS->get(K("vl_large_menus")).truthy();
     if (!OVERLAY_MENU || !F_HIDE_BG) {
@@ -1895,15 +1913,15 @@ void Globals::draw() {
                 v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get()) {
                 // the deck peek (L2) grows with large menus, like the description popups
                 if (v == deck_preview.get() && large_menus) draw_popup_large(v, 1.6f);
-                else draw_node(v);
+                else if (!hidden_by_overlay(v)) draw_node(v);
             }
         });
         prof(2);
         I.CARDAREA.each([](Moveable *v) {
-            if (!v->parent) draw_node(v);
+            if (!v->parent && !hidden_by_overlay(v)) draw_node(v);
         });
         I.CARD.each([&](Moveable *v) {
-            if (!v->parent && v != CONTROLLER->dragging.target.get() && v != CONTROLLER->focused.target.get()) draw_node(v);
+            if (!v->parent && v != CONTROLLER->dragging.target.get() && v != CONTROLLER->focused.target.get() && !hidden_by_overlay(v)) draw_node(v);
         });
         prof(3);
         I.UIBOX.each([&](Node *v) {
@@ -1924,7 +1942,6 @@ void Globals::draw() {
             DISABLED_BUTTONS = nullptr;
         }
     }
-    update_overlay_zoom();
     auto draw_maybe_zoomed = [&](Node *v) {
         if (overlay_zoom.on && in_overlay(v)) draw_zoomed(v);
         else draw_node(v);

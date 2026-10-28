@@ -1082,6 +1082,7 @@ void Card::draw_layer(std::string_view layer) {
     if (l_shadow) {
         send_to_shader[0] = (float)(std::min(VT.r * 3, 1.f) + G.TIMERS.REAL / 28 + (has_juice ? juice.r * 20 : 0) + tilt_var.amt);
         send_to_shader[1] = (float)G.TIMERS.REAL;
+        has_send_to_shader = true;
         children.each([&](Str *, Node *c) {
             if (Moveable *m = dynamic_cast<Moveable *>(c)) m->VT.scale = VT.scale;
         });
@@ -1132,7 +1133,7 @@ void Card::draw_layer(std::string_view layer) {
     if (Node *ub = children.get("use_button"); ub && highlighted) ub->draw();
 
     SpriteShaderArgs send;
-    send.send = send_to_shader;
+    send.send = send_args();
     Value cen = config->get(K("center"));
     bool cdisc = fld(cen, "discovered").truthy() || bypass_discovery_center;
     Value an = ability->get(K("name"));
@@ -1175,7 +1176,7 @@ void Card::draw_layer(std::string_view layer) {
         if (extras) {
             auto on_center = [&](Sprite *s, gfx::ShaderId id, bool with_send) {
                 SpriteShaderArgs a;
-                if (with_send) a.send = send_to_shader;
+                if (with_send) a.send = send_args();
                 a.other_obj = center;
                 s->role.draw_major = this;
                 s->draw_shader(id, a);
@@ -1246,7 +1247,7 @@ void Card::draw_layer(std::string_view layer) {
                 if (an.equals("Hologram")) {
                     hover_tilt *= 1.5f;
                     SpriteShaderArgs a;
-                    a.send = send_to_shader;
+                    a.send = send_args();
                     a.other_obj = center;
                     a.ms = 2 * scale_mod;
                     a.mr = 2 * rotate_mod;
@@ -1291,7 +1292,7 @@ void Card::draw_layer(std::string_view layer) {
             st->second->role.draw_major = this;
             st->second->draw_shader(gfx::ShaderId::Dissolve, a);
             if (sticker.equals("Gold")) {
-                a.send = send_to_shader;
+                a.send = send_args();
                 st->second->draw_shader(gfx::ShaderId::Voucher, a);
             }
         }

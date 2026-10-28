@@ -218,6 +218,7 @@ struct Globals {
     struct OverlayZoom {
         bool on = false;
         float s = 1, cx = 0, cy = 0;
+        float px0 = 0, py0 = 0, px1 = 0, py1 = 0;  // the enlarged panel's screen rect (tiles)
         XY zoom(XY p) const { return on ? XY{cx + (p.x - cx) * s, cy + (p.y - cy) * s} : p; }
         XY unzoom(XY p) const { return on ? XY{cx + (p.x - cx) / s, cy + (p.y - cy) / s} : p; }
     } overlay_zoom;
