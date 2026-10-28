@@ -28,15 +28,15 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Verificar que todos los logros se otorgan y muestran su aviso (`notify_alert`) como en el original
 
 ## 4. Reglas y partida
-- [ ] Baraja Anaglyph: Double Tag al vencer a un jefe (`Back:trigger_effect` context `eval`)
-- [ ] Aviso del jefe "La mano no puntuará" + texto del jefe sobre la zona de juego (`boss_warning_text`)
-- [ ] Stake dorada: búsqueda de semilla que evita leyendas ya ganadas (`get_first_legendary`)
-- [ ] Stake dorada: brillo animado del chip en `get_stake_sprite`
-- [ ] Música de sobres: `music2` (Arcana/Spectral) y `music3` (Celestial)
-- [ ] Menú de pausa: fila de la semilla en partidas con semilla (`current_seed`)
-- [ ] Reconstruir `G.buttons` al cambiar ajustes durante una partida (`create_UIBox_buttons`)
-- [ ] Reinicio rápido (mantener R; solo teclado, opcional en Vita)
-- [ ] Quitar el stub muerto de `can_use_consumeable` en state_events.cpp (el real está en consumables.cpp)
+- [x] Baraja Anaglyph: Double Tag al vencer a un jefe (`Back:trigger_effect` context `eval`)
+- [x] Aviso del jefe "La mano no puntuará" + texto del jefe sobre la zona de juego (`boss_warning_text`)
+- [x] Stake dorada: búsqueda de semilla que evita leyendas ya ganadas (`get_first_legendary`)
+- [x] Stake dorada: brillo animado del chip en `get_stake_sprite`
+- [x] Música de sobres: `music2` (Arcana/Spectral) y `music3` (Celestial)
+- [x] Menú de pausa: fila de la semilla en partidas con semilla (`current_seed`)
+- [x] Reconstruir `G.buttons` al cambiar ajustes durante una partida (`create_UIBox_buttons`)
+- [x] Reinicio rápido (mantener R; solo teclado, opcional en Vita)
+- [x] Quitar el stub muerto de `can_use_consumeable` en state_events.cpp (el real está en consumables.cpp)
 
 ## 5. Fidelidad visual
 - [ ] Vista de baraja: pequeña diferencia de inclinación por carta (ambient tilt / IDs)
@@ -60,6 +60,19 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Salir con el botón PS / suspender y volver (audio, guardado)
 - [ ] Teclado en pantalla para la semilla y nombres
 - [ ] Una partida completa hasta ante 8 + modo infinito
+
+## 8. Distribución: web que genera el VPK en el navegador (sin datos de Balatro en nada que publiquemos)
+- [ ] El juego carga todos los recursos desde `ux0:data/Vitalatro/` (o desde dentro del VPK generado), nada embebido
+- [ ] Biblioteca C++ "asset builder" que reemplaza `tools/build_assets.py`: leer el zip del `Balatro.exe` (LOVE fusionado)
+      o del `.apk`, verificar versión (1.0.1o), extraer texturas/sonidos, datos con Lua 5.1 embebido (`extract_data.lua`),
+      fuentes como LOVE (`bake_fonts.py`), iconos de botones Vita (`vita_pips.py`)
+- [ ] Compilar esa biblioteca a WebAssembly (Emscripten) + herramienta de línea de comandos para PC (mismo resultado byte a byte)
+- [ ] Armar el VPK en el navegador: zip con nuestro `eboot.bin`, `sce_sys`, shaders compilados y los recursos generados
+- [ ] Shaders: reescribir los que aún son conversión directa del original (fórmulas propias equivalentes, verificadas),
+      y publicar solo nuestros `.gxp` compilados
+- [ ] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
+- [ ] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
+- [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
 
 ## Fuera de alcance (del original, a propósito)
 Puntuaciones online, Discord/Twitter/Steam/linktree, encuestas y CTA de la demo, retos diarios
