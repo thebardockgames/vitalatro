@@ -313,6 +313,7 @@ bool UIBox::remove_group(UIElement *node, const Value &group) {
         node->remove();
         return true;
     }
+    if (!UIRoot) return false;
     Transform t = *T;
     calculate_xywh(UIRoot.get(), t, true);
     UIRoot->set_wh();
@@ -397,7 +398,7 @@ void UIBox::draw() {
     children.each([](Str *name, Node *c) {
         if (name != K("h_popup") && name != K("alert")) c->draw();
     });
-    if (states.visible) {
+    if (states.visible && UIRoot) {
         add_to_drawhash(this);
         UIRoot->draw_self();
         UIRoot->draw_children();
@@ -412,6 +413,8 @@ void UIBox::draw() {
 }
 
 void UIBox::recalculate() {
+    // a removed box: the original keeps its (removed) UIRoot and recalculates it harmlessly
+    if (!UIRoot) return;
     Transform t = *T;
     calculate_xywh(UIRoot.get(), t, true);
     UIRoot->set_wh();
@@ -436,7 +439,7 @@ void UIBox::add_child(const TableRef &node, UIElement *par) {
 }
 
 void UIBox::set_container(Node *c) {
-    UIRoot->set_container(c);
+    if (UIRoot) UIRoot->set_container(c);
     Node::set_container(c);
 }
 
