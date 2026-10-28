@@ -73,6 +73,8 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       y publicar solo nuestros `.gxp` compilados
 - [x] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
 - [ ] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
+      (idéntico byte a byte al nativo con el APK; con el `Balatro.exe` de Steam se genera y abre en Vita3K;
+      falta probarlo en la Vita real)
 - [ ] `sce_sys` (icono, fondo y logo del LiveArea) es arte de Balatro: quitarlo del repo y de su historial antes de publicarlo
       (la web ya genera los suyos a partir de los archivos del usuario)
 - [ ] Datos deterministas: generar `build/assets_*/data` con `vl_asset_builder` (el LuaJIT de WSL baraja el orden de las tablas
