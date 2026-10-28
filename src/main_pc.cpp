@@ -143,7 +143,9 @@ int main(int argc, char **argv) {
         if (const char *d = std::getenv("VL_DECK"); d && f == run_frame)
             vl::G.GAME->set("viewed_back", vl::Value((vl::Object *)new vl::Back(vl::G.P_CENTERS->get(vl::Value(d)))));
         if (const char *c = std::getenv("VL_COMBO"); c && std::atoi(c) == f) vl::combo_setup(std::strchr(c, ':') ? std::atoi(std::strchr(c, ':') + 1) : 44);
-        if (f == run_frame) vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", 1}}));
+        // VL_STAKE=n: the run's stake (default 1, as REF_STAKE)
+        if (f == run_frame)
+            vl::start_run_with(nullptr, vl::T({{"seed", vl::Value(run_seed)}, {"stake", std::getenv("VL_STAKE") ? std::atof(std::getenv("VL_STAKE")) : 1.0}}));
         // VL_GPU_EST=2 lists the large draws of each captured frame
         vl::gfx::g_draw_debug = ge && ge[0] == '2' && frames.count(f);
         // VL_ID_DETAIL="f,f": every Node created during those frames, by class (as REF_ID_DETAIL)

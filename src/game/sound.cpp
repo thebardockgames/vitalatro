@@ -263,7 +263,8 @@ void modulate_sound(double dt) {
     // Control the music here
     Value blind = G.GAME->get(K("blind"));
     const char *desired_track = G.STATE == SPLASH ? ""
-                                // TODO(run): booster_pack_sparkles -> music2, booster_pack_meteors -> music3
+                                : G.booster_pack_sparkles && !G.booster_pack_sparkles->REMOVED ? "music2"
+                                : G.booster_pack_meteors && !G.booster_pack_meteors->REMOVED   ? "music3"
                                 : live(G.booster_pack)                         ? "music2"
                                 : live(G.shop)                                 ? "music4"
                                 : blind.truthy() && fld(blind, "boss").truthy() ? "music5"

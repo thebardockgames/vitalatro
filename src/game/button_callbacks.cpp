@@ -916,7 +916,11 @@ void register_button_callbacks() {
     T["change_gamespeed"] = [](const TableRef &a) { G.SETTINGS->set("GAMESPEED", a->get(K("to_val"))); };
     T["change_play_discard_position"] = [](const TableRef &a) {
         G.SETTINGS->set("play_button_pos", a->get(K("to_key")));
-        // TODO(run): rebuild G.buttons (create_UIBox_buttons) when a run is active
+        if (G.buttons) {
+            G.buttons->remove();
+            G.buttons = new UIBox(create_UIBox_buttons(), vl::T({{"align", "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0.3}}))},
+                                                                 {"major", Value((Object *)G.hand.get())}, {"bond", "Weak"}}));
+        }
     };
     T["change_shadows"] = [](const TableRef &a) {
         G.SETTINGS->get(K("GRAPHICS")).table()->set("shadows", a->get(K("to_key")).num() == 1 ? "On" : "Off");

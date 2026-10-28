@@ -110,10 +110,37 @@ void pseudoshuffle(std::vector<CardRef> &list, double seed) {
     }
 }
 
+// get_first_legendary(_key): the legendary joker a Soul would give first in a run with seed _key
+static Value get_first_legendary(const std::string &key) {
+    double seed = pseudoseed("Joker4", key);
+    return fld(pseudorandom_element(G.P_JOKER_RARITY_POOLS->get(4), &seed), "key");
+}
+
 std::string generate_starting_seed() {
-    // TODO(run): stake 8's legendary-joker seed search
-    const Moveable *ch = dynamic_cast<const Moveable *>(G.CONTROLLER->cursor_hover.target.get());
-    double x = ch ? ch->T->x : 0, y = ch ? ch->T->y : 0, time = G.CONTROLLER->cursor_hover.time;
+    const CursorState &ch = G.CONTROLLER->cursor_hover;
+    double x = ch.T.x, y = ch.T.y, time = ch.time;
+    if (G.GAME->get(K("stake")).num() >= 8) {
+        // Gold stake: pick a seed whose first legendary has not been won with at gold stake yet
+        TableRef r_leg = new_table();
+        int r_tally = 0, g_tally = 0;
+        G.P_JOKER_RARITY_POOLS->get(4).table()->each([&](const Value &, const Value &v) {
+            if (get_joker_win_sticker_index(v) >= 8) g_tally++;
+            else {
+                r_leg->set(fld(v, "key"), true);
+                r_tally++;
+            }
+        });
+        if (r_tally > 0 && g_tally > 0) {
+            std::string seed_found;
+            double extra_num = 0;
+            while (seed_found.empty()) {
+                extra_num = extra_num + 0.561892350821;
+                seed_found = random_string(8, extra_num + x * 0.33411983 + y * 0.874146 + 0.412311010 * time);
+                if (!r_leg->get(get_first_legendary(seed_found)).truthy()) seed_found.clear();
+            }
+            return seed_found;
+        }
+    }
     return random_string(8, x * 0.33411983 + y * 0.874146 + 0.412311010 * time);
 }
 
@@ -125,14 +152,32 @@ Value get_deck_from_name(const Value &name) {
     return found;
 }
 
+namespace {
+// Gold stake's chip: get_stake_sprite replaces its draw with a dissolve + voucher shine (and, as the
+// original's instance draw, it neither draws children nor joins the draw hash)
+class GoldStakeSprite : public Sprite {
+public:
+    using Sprite::Sprite;
+    void draw() override {
+        float send[2];
+        send[0] = (float)(std::min(VT.r * 3, 1.f) + G.TIMERS.REAL / 18 + (has_juice ? juice.r * 20 : 0) + 1);
+        send[1] = (float)G.TIMERS.REAL;
+        draw_shader(gfx::ShaderId::Dissolve);
+        SpriteShaderArgs a;
+        a.send = send;
+        draw_shader(gfx::ShaderId::Voucher, a);
+    }
+};
+}  // namespace
+
 Sprite *get_stake_sprite(int stake, float scale) {
     Value pos = fld(G.P_CENTER_POOLS->get(K("Stake")).get(stake), "pos");
     SpritePos p;
     p.x = (float)fld(pos, "x").num();
     p.y = (float)fld(pos, "y").num();
-    Sprite *s = new Sprite(0, 0, scale, scale, &G.ASSET_ATLAS["chips"], p);
+    Atlas *chips = &G.ASSET_ATLAS["chips"];
+    Sprite *s = stake == 8 ? new GoldStakeSprite(0, 0, scale, scale, chips, p) : new Sprite(0, 0, scale, scale, chips, p);
     s->states.drag.can = false;
-    // TODO(run): stake 8's voucher-shine draw
     return s;
 }
 
@@ -1376,11 +1421,6 @@ void register_run_callbacks() {
         card->sell_card();
         for (auto &j : std::vector<CardRef>(G.jokers->cards))
             if (j.get() != card) j->calculate_joker(vl::T({{"selling_card", true}, {"card", Value((Object *)card)}}));
-    };
-    F["can_use_consumeable"] = [](UIElement *e) {
-        // TODO(run): Card:can_use_consumeable (hito 4); until then the Use button stays inactive
-        e->config->set("colour", fld(G.colour("UI"), "BACKGROUND_INACTIVE"));
-        e->config->set("button", Value());
     };
     F["go_to_menu"] = [](UIElement *) {
         G.SETTINGS->set("paused", true);

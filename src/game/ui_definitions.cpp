@@ -433,7 +433,23 @@ TableRef create_UIBox_options() {
         restart = btn({{"id", "restart_button"}, {"label", Value(A({localize("b_start_new_run")}))}, {"button", "setup_run"}, {"minw", 5}});
         main_menu = btn({{"label", Value(A({localize("b_main_menu")}))}, {"button", "go_to_menu"}, {"minw", 5}});
         your_collection = btn({{"label", Value(A({localize("b_collection")}))}, {"button", "your_collection"}, {"minw", 5}, {"id", "your_collection"}});
-        // TODO(run): the seeded run row (current_seed)
+        bool seeded_run = fld(Value(G.GAME), "seeded").truthy();
+        current_seed = node(
+            UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}),
+            A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0}}),
+                    A({node(UIT_T, vl::T({{"text", Value(localize("b_seed").to_string() + ": ")}, {"scale", 0.4}, {"colour", col("WHITE")}}))})),
+               node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0}, {"minh", 0.8}}),
+                    A({node(UIT_C, vl::T({{"align", "cm"}, {"padding", 0}, {"minh", 0.8}}),
+                            A({node(UIT_R,
+                                    vl::T({{"align", "cm"}, {"r", 0.1}, {"colour", seeded_run ? col("RED") : col("BLACK")}, {"minw", 1.8},
+                                           {"minh", 0.5}, {"padding", 0.1}, {"emboss", 0.05}}),
+                                    A({node(UIT_C, vl::T({{"align", "cm"}}),
+                                            A({node(UIT_T, vl::T({{"text", Value(fld(fld(Value(G.GAME), "pseudorandom"), "seed").to_string())},
+                                                                  {"scale", 0.43},
+                                                                  {"colour", ui_col("TEXT_LIGHT")},
+                                                                  {"shadow", true}}))}))}))}))})),
+               btn({{"col", true}, {"button", "copy_seed"}, {"label", Value(A({localize("b_copy")}))}, {"colour", col("BLUE")},
+                    {"scale", 0.3}, {"minw", 1.3}, {"minh", 0.5}})}));
     }
     if (G.STAGE == MAIN_MENU) credits = btn({{"label", Value(A({localize("b_credits")}))}, {"button", "show_credits"}, {"minw", 5}});
     Value settings = btn({{"button", "settings"}, {"label", Value(A({localize("b_settings")}))}, {"minw", 5},

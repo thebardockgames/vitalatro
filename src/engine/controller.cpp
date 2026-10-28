@@ -679,8 +679,25 @@ void Controller::key_hold_update(const std::string &key, double dt) {
     if (it == held_key_times.end()) return;
     if (key == "r" && !G.paused()) {
         if (it->second > 0.7) {
+            // quick restart: a new run with the same deck and stake (and seed / challenge)
+            if (!G.GAME->get(K("won")).truthy() && !G.GAME->get(K("seeded")).truthy() && !G.GAME->get(K("challenge")).truthy())
+                G.PROFILES->get(G.SETTINGS->get(K("profile"))).get(K("high_scores")).get(K("current_streak")).table()->set("amt", 0);
+            G.save_settings();
             held_key_times.erase(it);
-            // TODO(run): quick restart (streak reset, save_settings, start_setup_run)
+            G.SETTINGS->set("current_setup", "New Run");
+            G.GAME->set("viewed_back", Value());
+            Table *g = G.G_TABLE.get();
+            g->set("run_setup_seed", G.GAME->get(K("seeded")));
+            g->set("challenge_tab", G.GAME->get(K("challenge")).truthy() ? G.GAME->get(K("challenge_tab")) : Value());
+            g->set("forced_seed", Value());
+            g->set("setup_seed", Value());
+            if (G.GAME->get(K("seeded")).truthy()) g->set("forced_seed", G.GAME->get(K("pseudorandom")).get(K("seed")));
+            g->set("forced_stake", G.GAME->get(K("stake")));
+            if (G.STAGE == RUN) call_named("start_setup_run");
+            g->set("forced_stake", Value());
+            g->set("challenge_tab", Value());
+            g->set("forced_seed", Value());
+            return;
         } else {
             it->second += dt;
         }
