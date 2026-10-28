@@ -58,7 +58,9 @@ void overlay_menu(const TableRef &definition, const TableRef &config_in) {
                              {"no_esc", cfg->get(K("no_esc"))}});
     // G.OVERLAY_MENU = true while the UIBox is built (code run meanwhile checks it)
     G.STAGE_OBJECT_INTERRUPT = true;
-    G.OVERLAY_MENU = new Moveable(0, 0, 0, 0);
+    Moveable *sentinel = new Moveable();  // not a Lua Moveable: kept out of G.I.MOVEABLE
+    sentinel->init(0, 0, 0, 0);
+    G.OVERLAY_MENU = sentinel;
     G.STAGE_OBJECT_INTERRUPT = false;
     UIBox *box = new UIBox(definition, config);
     G.OVERLAY_MENU = box;

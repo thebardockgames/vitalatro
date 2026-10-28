@@ -198,8 +198,17 @@ struct MajorInfo {  // get_major() result
 class Moveable : public Node {
 public:
     Moveable() = default;
-    Moveable(float x, float y, float w, float h) { init(x, y, w, h); }
-    explicit Moveable(const Args &args) { init(args); }
+    // a plain Moveable (getmetatable(self) == Moveable) also joins G.I.MOVEABLE, so Game:draw draws it
+    // and its children (G.ROOM_ATTACH's booster pack particles); subclasses register in their own init
+    Moveable(float x, float y, float w, float h) {
+        init(x, y, w, h);
+        register_plain();
+    }
+    explicit Moveable(const Args &args) {
+        init(args);
+        register_plain();
+    }
+    void register_plain();
 
     void init(float x, float y, float w, float h);
     void init(const Args &args);

@@ -39,8 +39,9 @@ void Moveable::init(const Args &args) {
     shadow_height = 0.2f;
     calculate_parrallax();
     G.MOVEABLES.add(this);
-    // plain Moveables go to G.I.MOVEABLE; subclasses register in their own init
 }
+
+void Moveable::register_plain() { G.I.MOVEABLE.add(this); }
 
 void Moveable::draw() {
     Node::draw();
