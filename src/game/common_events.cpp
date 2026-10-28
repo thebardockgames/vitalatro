@@ -5,12 +5,15 @@
 #include "core/lua_sort.h"
 #include "engine/controller.h"
 #include "engine/ui.h"
+#include "game/blind.h"
+#include "game/button_callbacks.h"
 #include "game/card.h"
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/save_manager.h"
 #include "platform/platform.h"
 #include "game/sound.h"
+#include "game/state_events.h"
 #include "game/ui_definitions.h"
 
 namespace vl {
@@ -425,9 +428,62 @@ void check_for_unlock(const TableRef &args) {
                 }
             }
             if (type.equals("money") && extra.num() <= fld(game, "dollars").num()) unlock();
-            // TODO(run): round_win (Matador, Troubadour, Hanging Chad), hand_contents, discard_custom need the blind and
-            // poker hand evaluation; win_no_hand / win_custom / win / chip_score are below.
+            if (type.equals("round_win")) {
+                Value cr = fld(game, "current_round");
+                Blind *bl = fld(game, "blind").as<Blind>();
+                bool boss = bl && bl->get_type() && std::string(bl->get_type()) == "Boss";
+                if (fld(card, "name").equals("Matador")) {
+                    if (fld(cr, "hands_played").num() == 1 && fld(cr, "discards_left").num() == fld(fld(game, "round_resets"), "discards").num() &&
+                        boss)
+                        unlock();
+                }
+                if (fld(card, "name").equals("Troubadour")) {
+                    if (fld(career, "c_single_hand_round_streak").num() >= extra.num()) unlock();
+                }
+                if (fld(card, "name").equals("Hanging Chad")) {
+                    if (fld(game, "last_hand_played") == extra && boss) unlock();
+                }
+            }
             if (type.equals("ante_up") && fld(uc, "ante").truthy() && args->get(K("ante")) == fld(uc, "ante")) unlock();
+            if (type.equals("hand_contents")) {
+                Table *cs = args->get(K("cards")).table();
+                int n = cs ? cs->len() : 0;
+                if (fld(card, "name").equals("Seeing Double")) {
+                    int tally = 0;
+                    for (int j = 1; j <= n; j++) {
+                        Card *c = cs->get(j).as<Card>();
+                        if (c->get_id() == 7 && c->is_suit(Value("Clubs"))) tally++;
+                    }
+                    if (tally >= 4) unlock();
+                }
+                if (fld(card, "name").equals("Golden Ticket")) {
+                    int tally = 0;
+                    for (int j = 1; j <= n; j++)
+                        if (cs->get(j).as<Card>()->ability->get(K("name")).equals("Gold Card")) tally++;
+                    if (tally >= 5) unlock();
+                }
+            }
+            if (type.equals("discard_custom")) {
+                Table *cs = args->get(K("cards")).table();
+                std::vector<Card *> cards;
+                for (int j = 1; cs && j <= cs->len(); j++) cards.push_back(cs->get(j).as<Card>());
+                if (fld(card, "name").equals("Hit the Road")) {
+                    int tally = 0;
+                    for (Card *c : cards)
+                        if (c->get_id() == 11) tally++;
+                    if (tally >= 5) unlock();
+                }
+                if (fld(card, "name").equals("Brainstorm")) {
+                    TableRef eval = evaluate_poker_hand(cards);
+                    Table *sf = eval->get(K("Straight Flush")).table();
+                    if (sf && sf->len() > 0) {
+                        int mn = 10;
+                        for (Card *c : cards)
+                            if (c->get_id() < mn) mn = c->get_id();
+                        if (mn == 10) unlock();
+                    }
+                }
+            }
             if (type.equals("win_no_hand") && fld(fld(fld(game, "hands"), std::string(extra.str()).c_str()), "played").num() == 0) unlock();
             if (type.equals("win_custom")) {
                 if (fld(card, "name").equals("Invisible Joker") && fld(game, "max_jokers").num() <= 4) unlock();
@@ -578,10 +634,30 @@ void unlock_notify() {
     std::string file = G.SETTINGS->get(K("profile")).to_string() + "/unlock_notify.jkr";
     std::string un;
     if (get_compressed(file, un)) {
-        // TODO(ui): create_unlock_overlay(key) for each line (card/deck unlock screens)
-        platform::log("unlock_notify: %s", un.c_str());
+        // string.gmatch(_UN .. "\n", "(.-)\n")
+        un += "\n";
+        size_t pos = 0, nl;
+        while ((nl = un.find('\n', pos)) != std::string::npos) {
+            create_unlock_overlay(un.substr(pos, nl - pos));
+            pos = nl + 1;
+        }
         platform::remove_save(file.c_str());
     }
+}
+
+void create_unlock_overlay(const std::string &key) {
+    if (!G.P_CENTERS->get(Value(key)).truthy()) return;
+    EventConfig e = ev_immediate([key] {
+        if (G.OVERLAY_MENU) return false;
+        G.SETTINGS->set("paused", true);
+        const Value c = G.P_CENTERS->get(Value(key));
+        overlay_menu(fld(c, "set").equals("Back") ? create_UIBox_deck_unlock(c) : create_UIBox_card_unlock(c));
+        play_sound("foil1", 0.7f, 0.3f);
+        play_sound("gong", 1.4f, 0.15f);
+        return true;
+    });
+    e.no_delete = true;
+    G.E_MANAGER->add_event(std::move(e), EventManager::UNLOCK);
 }
 
 void discover_card(const Value &card_in) {

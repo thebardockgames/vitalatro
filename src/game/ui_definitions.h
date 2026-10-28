@@ -41,6 +41,9 @@ TableRef create_keyboard_input(const TableRef &args);
 TableRef profile_select();             // G.UIDEF.profile_select
 TableRef profile_option(int profile);  // G.UIDEF.profile_option
 TableRef create_UIBox_your_collection();
+// create_UIBox_card_unlock(card_center) / create_UIBox_deck_unlock(deck_center): the unlock screens (unlock_ui.cpp)
+TableRef create_UIBox_card_unlock(const Value &card_center);
+TableRef create_UIBox_deck_unlock(const Value &deck_center);
 // the card pages: kind is the pool (Joker, Tarot, Planet, Spectral, Voucher, Booster)
 TableRef create_UIBox_your_collection_cards(const std::string &kind);
 void collection_fill(const std::string &kind, int page);  // a page's cards + INIT_COLLECTION_CARD_ALERTS

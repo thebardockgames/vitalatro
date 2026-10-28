@@ -16,6 +16,7 @@
 #include "game/blind.h"
 #include "game/button_callbacks.h"
 #include "game/card.h"
+#include "game/card_factory.h"
 #include "game/functions.h"
 #include "game/g.h"
 #include "game/sound.h"
@@ -503,7 +504,12 @@ void card_eval_status_text(Card *card, const char *eval_type, double amt, double
             G.E_MANAGER->add_event(e);
         }
     }
-    // TODO(run): extra.playing_cards_created (playing_card_joker_effects)
+    if (extra && extra->get(K("playing_cards_created")).truthy()) {
+        std::vector<Card *> created;
+        Table *pc = extra->get(K("playing_cards_created")).table();
+        for (int i = 1; pc && i <= pc->len(); i++) created.push_back(pc->get(i).as<Card>());  // {true} -> nullptr
+        playing_card_joker_effects(created);
+    }
 }
 
 // ------------------------------------------------------------------ G.FUNCS: discarding and playing
