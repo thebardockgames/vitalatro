@@ -24,6 +24,7 @@
 #include "game/shop.h"
 #include "game/state_events.h"
 #include "game/tag.h"
+#include "game/tutorial.h"
 #include "game/render.h"
 #include "game/save_manager.h"
 #include "game/sound.h"
@@ -707,7 +708,7 @@ void Globals::delete_run() {
             OVERLAY_MENU->remove();
             OVERLAY_MENU = nullptr;
         }
-        // TODO(tutorial): OVERLAY_TUTORIAL (Jimbo, content)
+        remove_tutorial_overlay();
         for (Ref<CardArea> *a : {&hand, &deck, &jokers, &consumeables, &play, &discard, &shop_jokers, &shop_vouchers, &shop_booster,
                                  &pack_cards, &title_top})
             *a = nullptr;
@@ -1681,7 +1682,7 @@ void Globals::main_menu(std::string_view change_context) {
 // ------------------------------------------------------------------ Game:update
 void Globals::update(double dt) {
     FRAMES.MOVE++;
-    // TODO(tutorial): G.FUNCS.tutorial_controller() while the tutorial is not complete
+    if (!SETTINGS->get(K("tutorial_complete")).truthy()) tutorial_controller();
     modulate_sound(dt);
     update_canvas_juice(dt);
     TIMERS.REAL += dt;
@@ -1905,8 +1906,7 @@ void Globals::draw() {
         }
         under_overlay = false;
         if (OVERLAY_TUTORIAL) {
-            draw_node(OVERLAY_TUTORIAL.get());
-            // TODO(tutorial): OVERLAY_TUTORIAL.highlights
+            draw_tutorial_overlay();
         } else {
             DISABLED_BUTTONS = nullptr;
         }

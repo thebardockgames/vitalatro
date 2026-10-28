@@ -43,6 +43,7 @@ set(COMMON_SRC
   src/game/jokers.cpp
   src/game/tag.cpp
   src/game/card_character.cpp
+  src/game/tutorial.cpp
   src/game/profile.cpp
   src/game/game_over.cpp
   src/game/run_setup.cpp
