@@ -5,6 +5,7 @@
 */
 
 
+#include <math.h>
 #include <stdlib.h>
 
 #define lcode_c
@@ -251,6 +252,20 @@ int luaK_stringK (FuncState *fs, TString *s) {
   TValue o;
   setsvalue(fs->L, &o, s);
   return addk(fs, &o, &o);
+}
+
+
+/* A constructor template (never shared, so not looked up in fs->h). */
+int luaK_tableK (FuncState *fs, Table *t) {
+  lua_State *L = fs->L;
+  Proto *f = fs->f;
+  int oldsize = f->sizek;
+  luaM_growvector(L, f->k, fs->nk, f->sizek, TValue,
+                  MAXARG_Bx, "constant table overflow");
+  while (oldsize < f->sizek) setnilvalue(&f->k[oldsize++]);
+  sethvalue(L, &f->k[fs->nk], t);
+  luaC_objbarrier(L, f, t);
+  return fs->nk++;
 }
 
 
@@ -633,18 +648,15 @@ static int constfolding (OpCode op, expdesc *e1, expdesc *e2) {
     case OP_ADD: r = luai_numadd(v1, v2); break;
     case OP_SUB: r = luai_numsub(v1, v2); break;
     case OP_MUL: r = luai_nummul(v1, v2); break;
-    case OP_DIV:
-      if (v2 == 0) return 0;  /* do not attempt to divide by 0 */
-      r = luai_numdiv(v1, v2); break;
-    case OP_MOD:
-      if (v2 == 0) return 0;  /* do not attempt to divide by 0 */
-      r = luai_nummod(v1, v2); break;
+    case OP_DIV: r = luai_numdiv(v1, v2); break;
+    case OP_MOD: r = luai_nummod(v1, v2); break;
     case OP_POW: r = luai_numpow(v1, v2); break;
     case OP_UNM: r = luai_numunm(v1); break;
     case OP_LEN: return 0;  /* no constant folding for 'len' */
     default: lua_assert(0); r = 0; break;
   }
-  if (luai_numisnan(r)) return 0;  /* do not attempt to produce NaN */
+  /* as LuaJIT's foldarith: no NaN and no -0 constants (it does fold x/0) */
+  if (luai_numisnan(r) || (r == 0 && signbit(r))) return 0;
   e1->u.nval = r;
   return 1;
 }

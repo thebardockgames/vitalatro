@@ -16,6 +16,7 @@
 #include "ldebug.h"
 #include "ldo.h"
 #include "lfunc.h"
+#include "lgc.h"
 #include "llex.h"
 #include "lmem.h"
 #include "lobject.h"
@@ -437,7 +438,57 @@ struct ConsControl {
   int nh;  /* total number of `record' elements */
   int na;  /* total number of array elements */
   int tostore;  /* number of array elements pending to be stored */
+  /* LuaJIT's expr_table() state: the new table is a copy of a template built here, at
+     parse time, from the constant fields in source order (BC_TDUP), or an empty table
+     with LuaJIT's size hints (BC_TNEW). The stores are still emitted for every field;
+     storing a template's own value again does not change the layout. */
+  Table *tmpl;
+  int tmplk;
+  unsigned int narr;  /* first free array index (LuaJIT counts from 1) */
+  unsigned int nhash;  /* number of keyed fields so far */
+  int needarr;
 };
+
+
+/* LuaJIT's expr_isk / expr_isk_nojump / expr_kvalue on Lua 5.1's expdesc */
+static int exp_isk (expdesc *e) {
+  return e->k == VNIL || e->k == VTRUE || e->k == VFALSE || e->k == VK || e->k == VKNUM;
+}
+
+static int exp_isk_nojump (expdesc *e) {
+  return exp_isk(e) && e->t == NO_JUMP && e->f == NO_JUMP;
+}
+
+static void exp_kvalue (FuncState *fs, TValue *v, expdesc *e) {
+  switch (e->k) {
+    case VNIL: setnilvalue(v); break;
+    case VTRUE: setbvalue(v, 1); break;
+    case VFALSE: setbvalue(v, 0); break;
+    case VK: setobj(fs->L, v, &fs->f->k[e->u.s.info]); break;
+    default: setnvalue(v, e->u.nval); break;
+  }
+}
+
+/* A constant field into the template (created on demand with the sizes known so far). */
+static void tmpl_add (FuncState *fs, struct ConsControl *cc, TValue *k, expdesc *val, int strkey) {
+  lua_State *L = fs->L;
+  TValue *v;
+  if (cc->tmpl == NULL) {
+    cc->tmpl = luaH_new(L, cc->needarr ? (int)cc->narr : 0, (int)luaH_hsize2hbits(cc->nhash));
+    cc->tmplk = luaK_tableK(fs, cc->tmpl);
+  }
+  v = luaH_set(L, cc->tmpl, k);
+  luaC_barriert(L, cc->tmpl, k);
+  if (exp_isk_nojump(val)) {
+    exp_kvalue(fs, v, val);
+    luaC_barriert(L, cc->tmpl, v);
+    /* a nil value is marked with the template itself to keep the key */
+    if (strkey && ttisnil(v)) sethvalue(L, v, cc->tmpl);
+  }
+  else {
+    sethvalue(L, v, cc->tmpl);  /* the key for the store that follows */
+  }
+}
 
 
 static void recfield (LexState *ls, struct ConsControl *cc) {
@@ -445,17 +496,26 @@ static void recfield (LexState *ls, struct ConsControl *cc) {
   FuncState *fs = ls->fs;
   int reg = ls->fs->freereg;
   expdesc key, val;
-  int rkkey;
+  int rkkey, kconst, strkey;
+  TValue kv;
   if (ls->t.token == TK_NAME) {
     luaY_checklimit(fs, cc->nh, MAX_INT, "items in a constructor");
     checkname(ls, &key);
+    cc->nhash++;
   }
-  else  /* ls->t.token == '[' */
+  else {  /* ls->t.token == '[' */
     yindex(ls, &key);
+    if (key.k == VKNUM && key.u.nval == 0) cc->needarr = 1; else cc->nhash++;
+  }
   cc->nh++;
+  kconst = exp_isk(&key) && key.k != VNIL;
+  strkey = key.k == VK;
+  if (kconst) exp_kvalue(fs, &kv, &key);
   checknext(ls, '=');
   rkkey = luaK_exp2RK(fs, &key);
   expr(ls, &val);
+  if (kconst && (strkey || exp_isk_nojump(&val)))
+    tmpl_add(fs, cc, &kv, &val, strkey);
   luaK_codeABC(fs, OP_SETTABLE, cc->t->u.s.info, rkkey, luaK_exp2RK(fs, &val));
   fs->freereg = reg;  /* free registers */
 }
@@ -488,7 +548,14 @@ static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
 
 
 static void listfield (LexState *ls, struct ConsControl *cc) {
+  unsigned int idx = cc->narr++;
+  cc->needarr = 1;
   expr(ls, &cc->v);
+  if (exp_isk_nojump(&cc->v)) {
+    TValue k;
+    setnvalue(&k, cast_num(idx));
+    tmpl_add(ls->fs, cc, &k, &cc->v, 0);
+  }
   luaY_checklimit(ls->fs, cc->na, MAX_INT, "items in a constructor");
   cc->na++;
   cc->tostore++;
@@ -502,6 +569,11 @@ static void constructor (LexState *ls, expdesc *t) {
   int pc = luaK_codeABC(fs, OP_NEWTABLE, 0, 0, 0);
   struct ConsControl cc;
   cc.na = cc.nh = cc.tostore = 0;
+  cc.tmpl = NULL;
+  cc.tmplk = 0;
+  cc.narr = 1;
+  cc.nhash = 0;
+  cc.needarr = 0;
   cc.t = t;
   init_exp(t, VRELOCABLE, pc);
   init_exp(&cc.v, VVOID, 0);  /* no value (yet) */
@@ -532,8 +604,19 @@ static void constructor (LexState *ls, expdesc *t) {
   } while (testnext(ls, ',') || testnext(ls, ';'));
   check_match(ls, '}', '{', line);
   lastlistfield(fs, &cc);
-  SETARG_B(fs->f->code[pc], luaO_int2fb(cc.na)); /* set initial array size */
-  SETARG_C(fs->f->code[pc], luaO_int2fb(cc.nh));  /* set initial table size */
+  if (cc.tmpl == NULL) {  /* LuaJIT's TNEW sizes: B = asize low 9 bits, C = asize >> 9 | hbits << 2 */
+    unsigned int narr = cc.narr, hbits = luaH_hsize2hbits(cc.nhash);
+    if (!cc.needarr) narr = 0;
+    else if (narr < 3) narr = 3;
+    else if (narr > 0x7ff) narr = 0x7ff;
+    SETARG_B(fs->f->code[pc], narr & 0x1ff);
+    SETARG_C(fs->f->code[pc], (narr >> 9) | (hbits << 2));
+  }
+  else {
+    if (cc.needarr && (unsigned int)cc.tmpl->sizearray < cc.narr)
+      luaH_reasize(fs->L, cc.tmpl, (int)cc.narr - 1);
+    fs->f->code[pc] = CREATE_ABx(OP_TDUP, GETARG_A(fs->f->code[pc]), cc.tmplk);
+  }
 }
 
 /* }====================================================================== */

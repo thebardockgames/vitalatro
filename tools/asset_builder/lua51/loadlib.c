@@ -20,6 +20,7 @@
 
 #include "lauxlib.h"
 #include "lualib.h"
+#include "lvfs.h"
 
 
 /* prefix for open functions in C libraries */
@@ -330,10 +331,9 @@ static int ll_loadlib (lua_State *L) {
 
 
 static int readable (const char *filename) {
-  FILE *f = fopen(filename, "r");  /* try to open file */
-  if (f == NULL) return 0;  /* open failed */
-  fclose(f);
-  return 1;
+  const char *data;
+  size_t size;
+  return vl_vfs_read(filename, &data, &size);
 }
 
 

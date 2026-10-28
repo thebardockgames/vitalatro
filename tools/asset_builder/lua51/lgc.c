@@ -183,9 +183,11 @@ static int traversetable (global_State *g, Table *h) {
   i = sizenode(h);
   while (i--) {
     Node *n = gnode(h, i);
-    lua_assert(ttype(gkey(n)) != LUA_TDEADKEY || ttisnil(gval(n)));
-    if (ttisnil(gval(n)))
-      removeentry(n);  /* remove empty entries */
+    /* LuaJIT keeps the key of a node whose value is nil until the next rehash (a later
+       store to that key reuses the node): keep it, and keep it alive. */
+    if (ttisnil(gval(n))) {
+      if (!weakkey) markvalue(g, gkey(n));
+    }
     else {
       lua_assert(!ttisnil(gkey(n)));
       if (!weakkey) markvalue(g, gkey(n));

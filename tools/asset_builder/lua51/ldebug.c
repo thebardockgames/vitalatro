@@ -460,6 +460,10 @@ static Instruction symbexec (const Proto *pt, int lastpc, int reg) {
           pc += nup;  /* do not 'execute' these pseudo-instructions */
         break;
       }
+      case OP_TDUP: {
+        check(ttistable(&pt->k[b]));
+        break;
+      }
       case OP_VARARG: {
         check((pt->is_vararg & VARARG_ISVARARG) &&
              !(pt->is_vararg & VARARG_NEEDSARG));

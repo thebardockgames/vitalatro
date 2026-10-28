@@ -70,8 +70,13 @@ function copy_table(t) return deep_copy(t) end
 love = {
     system = {getOS = function() return 'Windows' end},
     mod_filesystem = {getInfo = function() return nil end, createDirectory = function() end},
-    filesystem = {getInfo = function() return nil end},
+    filesystem = {getInfo = function() return nil end, createDirectory = function() end, append = function() end},
 }
+-- the Steam (PC) build's init_item_prototypes reads the profile's meta.jkr with these
+-- (misc_functions.lua, loaded later, defines the real ones)
+function convert_save_to_meta() end
+function get_compressed() return nil end
+function STR_UNPACK(s) return assert(loadstring(s))() end
 dofile(game_dir .. '/engine/object.lua')
 
 -- ------------------------------------------------------------------ prototypes

@@ -138,9 +138,11 @@ void luaV_settable (lua_State *L, const TValue *t, TValue *key, StkId val) {
     const TValue *tm;
     if (ttistable(t)) {  /* `t' is a table? */
       Table *h = hvalue(t);
-      TValue *oldval = luaH_set(L, h, key); /* do a primitive set */
-      if (!ttisnil(oldval) ||  /* result is no nil? */
+      /* as LuaJIT: look the key up first, a new key is only created without __newindex */
+      const TValue *cur = luaH_get(h, key);
+      if (!ttisnil(cur) ||  /* result is no nil? */
           (tm = fasttm(L, h->metatable, TM_NEWINDEX)) == NULL) { /* or no TM? */
+        TValue *oldval = luaH_set(L, h, key);
         setobj2t(L, oldval, val);
         h->flags = 0;
         luaC_barriert(L, h, val);
@@ -461,7 +463,14 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       case OP_NEWTABLE: {
         int b = GETARG_B(i);
         int c = GETARG_C(i);
-        sethvalue(L, ra, luaH_new(L, luaO_fb2int(b), luaO_fb2int(c)));
+        int asize = b | ((c & 3) << 9);
+        if (asize == 0x7ff) asize = 0x801;  /* as LuaJIT's BC_TNEW */
+        sethvalue(L, ra, luaH_new(L, asize, c >> 2));
+        Protect(luaC_checkGC(L));
+        continue;
+      }
+      case OP_TDUP: {
+        sethvalue(L, ra, luaH_dup(L, hvalue(KBx(i))));
         Protect(luaC_checkGC(L));
         continue;
       }
@@ -697,21 +706,26 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       case OP_SETLIST: {
         int n = GETARG_B(i);
         int c = GETARG_C(i);
-        int last;
+        int last, first, j, multret = 0;
         Table *h;
         if (n == 0) {
           n = cast_int(L->top - ra) - 1;
           L->top = L->ci->top;
+          multret = 1;
         }
         if (c == 0) c = cast_int(*pc++);
         runtime_check(L, ttistable(ra));
         h = hvalue(ra);
-        last = ((c-1)*LFIELDS_PER_FLUSH) + n;
-        if (last > h->sizearray)  /* needs more space? */
-          luaH_resizearray(L, h, last);  /* pre-alloc it at once */
-        for (; n > 0; n--) {
-          TValue *val = ra+n;
-          setobj2t(L, luaH_setnum(L, h, last--), val);
+        first = (c-1)*LFIELDS_PER_FLUSH + 1;
+        last = first + n - 1;
+        /* LuaJIT stores the positional items one by one (BC_TSETB, into the array part
+           preallocated by TNEW/TDUP) and a trailing call's results with BC_TSETM, which
+           grows the array part to last+2 slots when they do not fit */
+        if (multret && last >= h->sizearray)
+          luaH_reasize(L, h, last + 1);
+        for (j = 0; j < n; j++) {
+          TValue *val = ra+1+j;
+          setobj2t(L, luaH_setnum(L, h, first + j), val);
           luaC_barriert(L, h, val);
         }
         continue;

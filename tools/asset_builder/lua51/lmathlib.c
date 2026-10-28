@@ -178,36 +178,59 @@ static int math_max (lua_State *L) {
 }
 
 
+/* LuaJIT's PRNG (lj_prng.c, lib_math.c): Tausworthe, period 2^223. */
+static unsigned long long vl_rs[4] = {
+  0xa0d277570a345b8cULL, 0x764a296c5d4aa64fULL, 0x51220704070adeaaULL, 0x2a2717b5a7b7b927ULL
+};
+
+#define TW223_GEN(z, r, i, k, q, s) \
+  z = vl_rs[i]; \
+  z = (((z<<q)^z) >> (k-s)) ^ ((z&((unsigned long long)(long long)-1 << (64-k)))<<s); \
+  r ^= z; vl_rs[i] = z;
+
+static unsigned long long vl_prng_u64 (void) {
+  unsigned long long z, r = 0;
+  TW223_GEN(z, r, 0, 63, 31, 18)
+  TW223_GEN(z, r, 1, 58, 19, 28)
+  TW223_GEN(z, r, 2, 55, 24,  7)
+  TW223_GEN(z, r, 3, 47, 21,  8)
+  return r;
+}
+
 static int math_random (lua_State *L) {
-  /* the `%' avoids the (rare) case of r==1, and is needed also because on
-     some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
-  lua_Number r = (lua_Number)(rand()%RAND_MAX) / (lua_Number)RAND_MAX;
-  switch (lua_gettop(L)) {  /* check number of arguments */
-    case 0: {  /* no arguments */
-      lua_pushnumber(L, r);  /* Number between 0 and 1 */
-      break;
+  int n = lua_gettop(L);
+  union { unsigned long long u; double d; } u;
+  double d;
+  u.u = (vl_prng_u64() & 0x000fffffffffffffULL) | 0x3ff0000000000000ULL;
+  d = u.d - 1.0;
+  if (n > 0) {
+    double r1 = luaL_checknumber(L, 1);
+    if (n == 1) {
+      d = floor(d*r1) + 1.0;
+    } else {
+      double r2 = luaL_checknumber(L, 2);
+      d = floor(d*(r2-r1+1.0)) + r1;
     }
-    case 1: {  /* only upper limit */
-      int u = luaL_checkint(L, 1);
-      luaL_argcheck(L, 1<=u, 1, "interval is empty");
-      lua_pushnumber(L, floor(r*u)+1);  /* int between 1 and `u' */
-      break;
-    }
-    case 2: {  /* lower and upper limits */
-      int l = luaL_checkint(L, 1);
-      int u = luaL_checkint(L, 2);
-      luaL_argcheck(L, l<=u, 2, "interval is empty");
-      lua_pushnumber(L, floor(r*(u-l+1))+l);  /* int between `l' and `u' */
-      break;
-    }
-    default: return luaL_error(L, "wrong number of arguments");
   }
+  lua_pushnumber(L, d);
   return 1;
 }
 
 
 static int math_randomseed (lua_State *L) {
-  srand(luaL_checkint(L, 1));
+  unsigned int r = 0x11090601;
+  double d = luaL_checknumber(L, 1);
+  int i;
+  for (i = 0; i < 4; i++) {
+    union { unsigned long long u; double d; } u;
+    unsigned int m = 1u << (r&255);
+    r >>= 8;
+    u.d = d = d * 3.14159265358979323846 + 2.7182818284590452354;
+    if (u.u < m) u.u += m;
+    vl_rs[i] = u.u;
+  }
+  for (i = 0; i < 10; i++)
+    (void)vl_prng_u64();
   return 0;
 }
 

@@ -52,6 +52,7 @@ const char *const luaP_opnames[NUM_OPCODES+1] = {
   "CLOSE",
   "CLOSURE",
   "VARARG",
+  "TDUP",
   NULL
 };
 
@@ -98,5 +99,6 @@ const lu_byte luaP_opmodes[NUM_OPCODES] = {
  ,opmode(0, 0, OpArgN, OpArgN, iABC)		/* OP_CLOSE */
  ,opmode(0, 1, OpArgU, OpArgN, iABx)		/* OP_CLOSURE */
  ,opmode(0, 1, OpArgU, OpArgN, iABC)		/* OP_VARARG */
+ ,opmode(0, 1, OpArgK, OpArgN, iABx)		/* OP_TDUP */
 };
 

@@ -72,13 +72,47 @@ static TString *newlstr (lua_State *L, const char *str, size_t l,
 }
 
 
+/*
+** LuaJIT's hash_sparse() (lj_str.c) keyed with the string seed of a LuaJIT built with
+** LUAJIT_SECURITY_PRNG=0 (fixed PRNG seed) and LUAJIT_TEST_FIXED_ORDER (a string's table hash,
+** its sid, is this hash). The empty string is LuaJIT's g->strempty: hash 0.
+*/
+#define VL_STR_SEED	0xa8445040u	/* (StrHash)0xae9cb511a8445040 */
+
+static unsigned int lj_rol32 (unsigned int x, int n) {
+  return (x << n) | (x >> (32 - n));
+}
+
+static unsigned int lj_getu32 (const char *p) {
+  unsigned int v;
+  memcpy(&v, p, 4);  /* little endian, as on x64 */
+  return v;
+}
+
+static unsigned int hash_sparse (const char *str, size_t len) {
+  unsigned int a, b, h = (unsigned int)len ^ VL_STR_SEED;
+  if (len == 0) return 0;
+  if (len >= 4) {
+    a = lj_getu32(str);
+    h ^= lj_getu32(str+len-4);
+    b = lj_getu32(str+(len>>1)-2);
+    h ^= b; h -= lj_rol32(b, 14);
+    b += lj_getu32(str+(len>>2)-1);
+  } else {
+    a = *(const unsigned char *)str;
+    h ^= *(const unsigned char *)(str+len-1);
+    b = *(const unsigned char *)(str+(len>>1));
+    h ^= b; h -= lj_rol32(b, 14);
+  }
+  a ^= h; a -= lj_rol32(h, 11);
+  b ^= a; b -= lj_rol32(a, 25);
+  h ^= b; h -= lj_rol32(b, 16);
+  return h;
+}
+
 TString *luaS_newlstr (lua_State *L, const char *str, size_t l) {
   GCObject *o;
-  unsigned int h = cast(unsigned int, l);  /* seed */
-  size_t step = (l>>5)+1;  /* if string is too long, don't hash all its chars */
-  size_t l1;
-  for (l1=l; l1>=step; l1-=step)  /* compute hash */
-    h = h ^ ((h<<5)+(h>>2)+cast(unsigned char, str[l1-1]));
+  unsigned int h = hash_sparse(str, l);
   for (o = G(L)->strt.hash[lmod(h, G(L)->strt.size)];
        o != NULL;
        o = o->gch.next) {

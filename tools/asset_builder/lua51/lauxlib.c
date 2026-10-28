@@ -23,6 +23,7 @@
 #include "lua.h"
 
 #include "lauxlib.h"
+#include "lvfs.h"
 
 
 #define FREELIST_REF	0	/* free list of references */
@@ -554,15 +555,24 @@ LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
   int status, readstatus;
   int c;
   int fnameindex = lua_gettop(L) + 1;  /* index of filename on the stack */
+  const char *data;
+  size_t size;
   lf.extraline = 0;
-  if (filename == NULL) {
-    lua_pushliteral(L, "=stdin");
-    lf.f = stdin;
+  if (filename != NULL) {  /* the builder's virtual files */
+    lua_pushfstring(L, "@%s", filename);
+    if (!vl_vfs_read(filename, &data, &size)) {
+      lua_pushfstring(L, "cannot open %s", filename);
+      lua_remove(L, fnameindex);
+      return LUA_ERRFILE;
+    }
+    if (size >= 3 && memcmp(data, "\xef\xbb\xbf", 3) == 0) { data += 3; size -= 3; }  /* BOM */
+    status = luaL_loadbuffer(L, data, size, lua_tostring(L, -1));
+    lua_remove(L, fnameindex);
+    return status;
   }
   else {
-    lua_pushfstring(L, "@%s", filename);
-    lf.f = fopen(filename, "r");
-    if (lf.f == NULL) return errfile(L, "open", fnameindex);
+    lua_pushliteral(L, "=stdin");
+    lf.f = stdin;
   }
   c = getc(lf.f);
   if (c == '#') {  /* Unix exec. file? */
