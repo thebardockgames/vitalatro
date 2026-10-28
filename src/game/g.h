@@ -118,6 +118,7 @@ struct Globals {
 
     // ---------------------------------------------------------------- render scale
     float TILESIZE = 20, TILESCALE = 3.65f, TILE_W = 21, TILE_H = 11.2f;
+    double TILESCALE_D = 3.65;  // G.TILESCALE as a Lua number (the cursor position in seeds needs every bit)
     float DRAW_HASH_BUFF = 2;
     float CARD_W = 2.4f * 35 / 41, CARD_H = 2.4f * 47 / 41;
     float HIGHLIGHT_H = 0.2f * (2.4f * 47 / 41);

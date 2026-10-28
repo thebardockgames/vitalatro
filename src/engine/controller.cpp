@@ -18,6 +18,7 @@ namespace vl {
 namespace {
 float vector_dist(XY a, XY b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
 float px_per_unit() { return G.TILESCALE * G.TILESIZE; }
+double px_per_unit_d() { return G.TILESCALE_D * 20; }
 UIElement *as_uie(Node *n) { return dynamic_cast<UIElement *>(n); }
 Value focus_args(Node *n) { return n ? n->config->get(K("focus_args")) : Value(); }
 void call_named(const char *name, UIElement *e = nullptr) {
@@ -78,6 +79,8 @@ void Controller::set_cursor_position() {
         cursor_position = mouse_position;
         G.CURSOR->T->x = cursor_position.x / px_per_unit();
         G.CURSOR->T->y = cursor_position.y / px_per_unit();
+        cursor_x = cursor_position.x / px_per_unit_d();
+        cursor_y = cursor_position.y / px_per_unit_d();
         G.CURSOR->VT.x = G.CURSOR->T->x;
         G.CURSOR->VT.y = G.CURSOR->T->y;
     }
@@ -495,6 +498,8 @@ void Controller::update_cursor(const XY *hard_set_T) {
     if (hard_set_T) {
         G.CURSOR->T->x = hard_set_T->x;
         G.CURSOR->T->y = hard_set_T->y;
+        cursor_x = hard_set_T->x;
+        cursor_y = hard_set_T->y;
         cursor_position.x = G.CURSOR->T->x * px_per_unit();
         cursor_position.y = G.CURSOR->T->y * px_per_unit();
         G.CURSOR->VT.x = G.CURSOR->T->x;
@@ -505,6 +510,8 @@ void Controller::update_cursor(const XY *hard_set_T) {
         cursor_position = focused.target->put_focused_cursor();
         G.CURSOR->T->x = cursor_position.x / px_per_unit();
         G.CURSOR->T->y = cursor_position.y / px_per_unit();
+        cursor_x = cursor_position.x / px_per_unit_d();
+        cursor_y = cursor_position.y / px_per_unit_d();
         G.CURSOR->VT.x = G.CURSOR->T->x;
         G.CURSOR->VT.y = G.CURSOR->T->y;
     }
@@ -533,6 +540,8 @@ std::string Controller::update_axis(double dt) {
             ly = ly + (ly > 0 ? -0.1f : 0) + (ly < 0 ? 0.1f : 0);
             G.CURSOR->T->x += (float)(dt * lx * axis_cursor_speed);
             G.CURSOR->T->y += (float)(dt * ly * axis_cursor_speed);
+            cursor_x += dt * lx * axis_cursor_speed;
+            cursor_y += dt * ly * axis_cursor_speed;
             G.CURSOR->VT.x = G.CURSOR->T->x;
             G.CURSOR->VT.y = G.CURSOR->T->y;
             cursor_position.x = G.CURSOR->T->x * px_per_unit();
@@ -558,6 +567,8 @@ std::string Controller::update_axis(double dt) {
             ry = ry + (ry > 0 ? -DEADZONE : 0) + (ry < 0 ? DEADZONE : 0);
             G.CURSOR->T->x += (float)(dt * rx * axis_cursor_speed);
             G.CURSOR->T->y += (float)(dt * ry * axis_cursor_speed);
+            cursor_x += dt * rx * axis_cursor_speed;
+            cursor_y += dt * ry * axis_cursor_speed;
             G.CURSOR->VT.x = G.CURSOR->T->x;
             G.CURSOR->VT.y = G.CURSOR->T->y;
             cursor_position.x = G.CURSOR->T->x * px_per_unit();
@@ -756,6 +767,8 @@ void Controller::get_cursor_collision(const XY &cursor) {
 
 void Controller::set_cursor_hover() {
     cursor_hover.T = {G.CURSOR->T->x, G.CURSOR->T->y};
+    hover_x = cursor_x;
+    hover_y = cursor_y;
     cursor_hover.time = G.TIMERS.UPTIME;
     NodeRef prev = cursor_hover.target;
     cursor_hover.target = nullptr;

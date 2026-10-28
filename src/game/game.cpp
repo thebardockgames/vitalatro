@@ -94,6 +94,11 @@ void resize(float w, float h) {
     if (w / h < 1) h = w;
     if (w / h < G.window_prev.orig_ratio) G.TILESCALE = G.window_prev.orig_scale * w / G.window_prev.w;
     else G.TILESCALE = G.window_prev.orig_scale * h / G.window_prev.h;
+    {
+        // the same in double precision: G.window_prev from G.WINDOWTRANS with the original's numbers
+        const double pw = (21 + 2 * 0.8) * 20 * 3.65, ph = (11.2 + 3 * 0.4) * 20 * 3.65;
+        G.TILESCALE_D = (double)w / h < pw / ph ? 3.65 * w / pw : 3.65 * (double)h / ph;
+    }
     if (G.ROOM) {
         G.ROOM->T->w = G.TILE_W;
         G.ROOM->T->h = G.TILE_H;

@@ -78,6 +78,9 @@ public:
     std::vector<NodeRef> collision_list, nodes_at_cursor;
     CursorState cursor_down, cursor_up, cursor_hover;
     XY cursor_position;  // screen pixels
+    // G.CURSOR.T.x/y and cursor_hover.T.x/y as Lua numbers: generate_starting_seed hashes them, and the
+    // float transforms lose bits that change the seed of a random run
+    double cursor_x = 0, cursor_y = 0, hover_x = 0, hover_y = 0;
     XY mouse_position;   // love.mouse.getPosition(), fed by the platform layer
 
     std::map<std::string, bool> pressed_keys, held_keys, released_keys;
