@@ -3,7 +3,10 @@
 Reimplementación nativa en C++ de Balatro (1.0.1o) para PlayStation Vita, a 60 fps.
 
 Este repositorio no incluye los recursos del juego: texturas, sonidos, textos, fuentes y datos se generan
-a partir de la copia de cada usuario (el `Balatro.exe` de Steam o el `.apk` de Android).
+a partir de la copia de cada usuario (el `Balatro.exe` de Steam o el `.apk` de Android). Necesitas tu propia
+copia legal del juego.
+
+Proyecto de fans sin relación con LocalThunk ni Playstack. Balatro es de sus respectivos dueños.
 
 ## Para jugar
 
