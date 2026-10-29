@@ -223,6 +223,7 @@ struct Globals {
         XY unzoom(XY p) const { return on ? XY{cx + (p.x - cx) / s, cy + (p.y - cy) / s} : p; }
     } overlay_zoom;
     bool drawing_zoomed = false;
+    bool large_menus() const;  // SETTINGS.vl_large_menus (and not VL_NO_ZOOM)
     // GPU bench (hold L+R): 0 normal, 1 no CRT pass, 2 no background, 3 no overlay menu, 4 no cards,
     // 5 overlay unzoomed, 6 no occlusion pre-pass, 7 card effect shaders
     // replaced by the plain card shader, 8-11 one edition shader plain, 12 no background field pass

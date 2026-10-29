@@ -147,7 +147,8 @@ bool in_overlay(Node *v) {
 
 // Vitalatro: with large menus on, a description popup (card, tag, blind...) is drawn enlarged
 // about the edge that touches what it describes, kept on screen. Popups never take input.
-void draw_popup_large(Node *v, float scale = 1.5f) {
+// (about: what it describes, when its alignment type does not say which side it is on)
+void draw_popup_large(Node *v, float scale = 1.5f, const Moveable *about = nullptr) {
     auto *m = dynamic_cast<Moveable *>(v);
     if (!m) {
         draw_node(v);
@@ -161,7 +162,8 @@ void draw_popup_large(Node *v, float scale = 1.5f) {
     const float x = t.x + G.ROOM->T->x, y = t.y + G.ROOM->T->y;
     const std::string &type = m->alignment.type;
     float ax = x + t.w / 2, ay = y + t.h / 2;  // the anchor: the edge facing the described object
-    if (type.find('t') != std::string::npos && type.find('m') != std::string::npos) ay = y + t.h;  // above it
+    if (about) ay = t.y + t.h / 2 < about->VT.y + about->VT.h / 2 ? y + t.h : y;
+    else if (type.find('t') != std::string::npos && type.find('m') != std::string::npos) ay = y + t.h;  // above it
     else if (type.find('b') != std::string::npos) ay = y;                                       // below it
     else if (type.find('l') != std::string::npos) ax = x + t.w;                                 // left of it
     else if (type.find('r') != std::string::npos) ax = x;                                       // right of it
@@ -241,6 +243,13 @@ bool hidden_by_overlay(Node *v) {
     return z.on && m && !in_overlay(v) && behind_overlay_panel(v);
 }
 }  // namespace
+
+void draw_popup_enlarged(Node *v, float scale, const Moveable *about) { draw_popup_large(v, scale, about); }
+
+bool Globals::large_menus() const {
+    static const bool no_zoom = std::getenv("VL_NO_ZOOM") != nullptr;  // frame comparisons with the original
+    return !no_zoom && SETTINGS->get(K("vl_large_menus")).truthy();
+}
 
 // ------------------------------------------------------------------ Game:init / set_globals
 void game_init() {
@@ -1899,18 +1908,17 @@ void Globals::draw() {
     }
     prof(0);
     STAGE_OBJECTS[STAGE].each([&](Node *v) { v->under_overlay = (bool)OVERLAY_TUTORIAL; });
+    update_overlay_zoom();
     I.NODE.each([](Node *v) {
-        if (!v->parent) draw_node(v);
+        if (!v->parent && !hidden_by_overlay(v)) draw_node(v);
     });
     I.MOVEABLE.each([](Moveable *v) {
-        if (!v->parent) draw_node(v);
+        if (!v->parent && !hidden_by_overlay(v)) draw_node(v);
     });
-    if (SPLASH_LOGO) draw_node(SPLASH_LOGO.get());
+    if (SPLASH_LOGO && !hidden_by_overlay(SPLASH_LOGO.get())) draw_node(SPLASH_LOGO.get());
     prof(1);
 
-    update_overlay_zoom();
-    static const bool no_zoom = std::getenv("VL_NO_ZOOM") != nullptr;  // frame comparisons with the original
-    const bool large_menus = !no_zoom && SETTINGS->get(K("vl_large_menus")).truthy();
+    const bool large_menus = this->large_menus();
     if (!OVERLAY_MENU || !F_HIDE_BG) {
         I.UIBOX.each([&](Node *v) {
             auto *b = dynamic_cast<UIBox *>(v);

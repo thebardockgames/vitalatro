@@ -300,7 +300,12 @@ bool tcp_send_all(int s, const void *buf, size_t n) {
     return true;
 }
 void tcp_close(int s) { sceNetSocketClose(s); }
+#ifdef VL_DEV
+// the dev build is driven remotely (inputs injected over Wi-Fi do not count as activity): keep the screen on too
+void keep_awake() { sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT); }
+#else
 void keep_awake() { sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND); }
+#endif
 bool read_any(const char *path, std::string &out) { return read_whole(path, out); }
 bool write_any(const char *path, const std::string &data) {
     SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);

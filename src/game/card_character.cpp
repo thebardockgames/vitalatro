@@ -174,6 +174,13 @@ TableRef speech_bubble(const std::string &text_key, const TableRef &loc_vars) {
                     {"key", text_key.empty() ? (quip ? "lq_1" : "sb_1") : text_key},
                     {"vars", loc_vars ? Value(loc_vars) : Value(new_table())},
                     {"nodes", Value(text)}}));
+    // Vitalatro: with large menus the text is bigger (it is hard to read on the Vita's screen)
+    if (G.large_menus())
+        for (int k = 1; k <= text->len(); k++)
+            if (Table *line = text->get(k).table())
+                for (int i = 1; i <= line->len(); i++)
+                    if (Table *conf = fld(line->get(i), "config").table(); conf && conf->get(K("scale")).is_num())
+                        conf->set("scale", conf->get(K("scale")).num() * 1.5);
     TableRef row = new_table();
     for (int k = 1; k <= text->len(); k++) row->push(node(UIT_R, vl::T({{"align", "cl"}}), TableRef(text->get(k).table())));
     return TableRef(
