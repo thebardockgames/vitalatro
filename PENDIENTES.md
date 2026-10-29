@@ -78,9 +78,9 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Shaders: reescribir los que aún son conversión directa del original (fórmulas propias equivalentes, verificadas),
       y publicar solo nuestros `.gxp` compilados
 - [x] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
-- [ ] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
-      (idéntico byte a byte al nativo con el APK; con el `Balatro.exe` de Steam se genera y abre en Vita3K;
-      falta probarlo en la Vita real)
+- [x] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
+      (idéntico byte a byte al nativo con el APK y con el `Balatro.exe` de Steam; el de Steam instalado en la Vita
+      real: menú, personalizar baraja, continuar partida y mano contra jefe a 59.9 fps)
 - [ ] `sce_sys` (icono, fondo y logo del LiveArea) es arte de Balatro: quitarlo del repo y de su historial antes de publicarlo
       (la web ya genera los suyos a partir de los archivos del usuario)
 - [x] Datos deterministas: `build/assets_*/data` generados con `vl_asset_builder` (dos ejecuciones idénticas byte a
@@ -88,8 +88,10 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       afectan al azar: Tarot_Planet solo se usa con clave forzada (El Loco) y la colección de ediciones usa una lista fija
 - [x] Copia de Steam: el `Balatro.exe` (1.0.1o) genera el VPK en la web y abre en Vita3K; en PC con sus datos
       menú, ciegas, mano y vista de baraja cargan sin errores
-- [ ] Recompilar el eboot de la Vita antes de armar el sitio (el de `build/vita` es viejo) y publicar en GitHub Pages
+- [ ] Publicar en GitHub Pages (el sitio de `build/site` ya está armado con el eboot actual)
 - [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
+      (web y eboot: sin imágenes, sonidos ni textos del original; repo: sin textos, pero aún tiene las tres imágenes
+      de `sce_sys`)
 
 ## Fuera de alcance (del original, a propósito)
 Puntuaciones online, Discord/Twitter/Steam/linktree, encuestas y CTA de la demo, retos diarios
