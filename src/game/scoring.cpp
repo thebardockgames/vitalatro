@@ -1580,6 +1580,13 @@ void cash_out(UIElement *e) {
         delay(0.3);
         G.E_MANAGER->add_event(ev_immediate([] {
             if (G.round_eval) {
+                // Vitalatro: the cash out button's box (major = G.round_eval) goes with it; the original
+                // leaves it in G.I.UIBOX, off screen, until the run ends (one more box per round)
+                std::vector<Node *> minors;
+                G.I.UIBOX.each([&](Node *v) {
+                    if (auto *m = dynamic_cast<Moveable *>(v); m && m->role.major.get() == G.round_eval.get()) minors.push_back(v);
+                });
+                for (Node *v : minors) v->remove();
                 G.round_eval->remove();
                 G.round_eval = nullptr;
             }

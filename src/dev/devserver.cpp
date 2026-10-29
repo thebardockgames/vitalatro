@@ -6,11 +6,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <sstream>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include "core/time.h"
+#include "engine/event.h"
+#include "engine/ui.h"
 #include "game/blind.h"
 #include "game/card_factory.h"
 #include "game/g.h"
@@ -344,6 +348,44 @@ void run_command(Request *r) {
         if (!b) return finish(r, false, "no blind");
         b->chips = std::atof(arg(0, "1").c_str());
         finish(r, true, "");
+    } else if (c == "counts") {
+        // counts: live objects per G.I list and queued events (leak hunting in long runs)
+        char buf[512];
+        size_t ev = 0;
+        for (auto &q : G.E_MANAGER->queues) ev += q.size();
+        std::snprintf(buf, sizeof buf, "NODE %u MOVEABLE %u SPRITE %u UIBOX %u POPUP %u CARD %u CARDAREA %u ALERT %u MOVEABLES %u events %u",
+                      (unsigned)G.I.NODE.size(), (unsigned)G.I.MOVEABLE.size(), (unsigned)G.I.SPRITE.size(), (unsigned)G.I.UIBOX.size(),
+                      (unsigned)G.I.POPUP.size(), (unsigned)G.I.CARD.size(),
+                      (unsigned)G.I.CARDAREA.size(), (unsigned)G.I.ALERT.size(), (unsigned)G.MOVEABLES.size(), (unsigned)ev);
+        std::string out = buf;
+        // the boxes: name, and whether they hang from something (parent) or a major
+        G.I.UIBOX.each([&](Node *v) {
+            auto *b = dynamic_cast<UIBox *>(v);
+            if (!b) return;
+            out += "\n  box '" + ui_box_name(b) + "'" + (b->parent ? std::string(" parent:") + typeid(*b->parent).name() : std::string()) + (b->role.major ? " major" : "") +
+                   (b->attention_text ? " attention" : "") + (b->UIRoot ? "" : " REMOVED");
+        });
+        // G.I.MOVEABLE and G.MOVEABLES by type
+        auto histogram = [&](const char *title, auto &list) {
+            std::map<std::string, int> n;
+            list.each([&](auto *v) { n[typeid(*v).name()]++; });
+            out += std::string("\n") + title + ":";
+            for (auto &[k, c] : n) out += " " + k + "=" + std::to_string(c);
+        };
+        histogram("MOVEABLE", G.I.MOVEABLE);
+        histogram("MOVEABLES", G.MOVEABLES);
+        // UI elements by owning box (a box no longer in G.I.UIBOX: 'gone')
+        std::map<std::string, int> owners;
+        G.MOVEABLES.each([&](Moveable *m) {
+            auto *e = dynamic_cast<UIElement *>(m);
+            if (!e) return;
+            bool live = false;
+            G.I.UIBOX.each([&](Node *v) { live |= v == e->box; });
+            owners[!e->box ? "<none>" : live ? ui_box_name(e->box) : "gone:" + ui_box_name(e->box)]++;
+        });
+        out += "\nUIElement owners:";
+        for (auto &[k, c] : owners) out += " [" + k + "]=" + std::to_string(c);
+        finish(r, true, out);
     } else if (c == "combo") {
         // combo [hand size delta]: the naneinf stress test (combo_setup), before drawing the hand
         if (!G.jokers) return finish(r, false, "no run");

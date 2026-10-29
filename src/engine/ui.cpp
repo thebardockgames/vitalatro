@@ -384,6 +384,8 @@ std::string first_text(const Value &n, int depth = 0) {
 }
 }  // namespace
 
+std::string ui_box_name(const UIBox *b) { return first_text(Value(b->definition)); }
+
 void UIBox::draw() {
     if (!UIRoot) {
         // a removed box something still draws (seen once on the Vita): skip it and say which

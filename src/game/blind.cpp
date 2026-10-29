@@ -478,6 +478,9 @@ void Blind::defeat(bool silent) {
                                             {"attach", Value((Object *)this)},
                                             {"colours", Value(dissolve_colours)},
                                             {"fill", true}}));
+    // Vitalatro: the last defeat's particles go first (the original replaces them and leaves them
+    // in G.I.MOVEABLE: one more object updated every frame per blind)
+    if (Node *old = children.get("particles")) old->remove();
     children.set("particles", parts);
     if (UIBox *hb = hud_blind())
         if (auto *t = dynamic_cast<DynaText *>(hb->get_UIE_by_ID("HUD_blind_name")->config->get(K("object")).obj())) t->pop_out(2);

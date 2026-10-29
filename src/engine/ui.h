@@ -89,6 +89,9 @@ public:
 
 enum RectType { RECT_FILL, RECT_SHADOW, RECT_LINE, RECT_EMBOSS, RECT_LINE_EMBOSS };
 
+// the first text (or #id) in a box's definition: names it in diagnostics
+std::string ui_box_name(const UIBox *b);
+
 // Vitalatro: while set, UI elements it reports as hidden (behind an enlarged overlay panel) are not
 // drawn, nor their children
 extern bool (*g_ui_hidden)(Node *);
