@@ -1,3 +1,5 @@
+![Vitalatro: Balatro for PS Vita](docs/banner.webp)
+
 # Vitalatro
 
 Reimplementación nativa en C++ de Balatro (1.0.1o) para PlayStation Vita, a 60 fps.
