@@ -282,6 +282,16 @@ TableRef Table::deep_copy() const {
     TableRef t = new_table();
     t->arr_.reserve(arr_.size());
     for (const Value &v : arr_) t->arr_.push_back(copy_value(v));
+    bool table_keys = false;
+    for (const Value &k : hkeys_) table_keys |= k.is_table();
+    if (!table_keys) {
+        // same keys, same hashes: the hash part is copied as it is (no rehashing as it grows)
+        t->hkeys_ = hkeys_;
+        t->index_ = index_;
+        t->hvals_.reserve(hvals_.size());
+        for (const Value &v : hvals_) t->hvals_.push_back(copy_value(v));
+        return t;
+    }
     for (size_t i = 0; i < hkeys_.size(); i++)
         if (!hvals_[i].is_nil()) t->set(copy_value(hkeys_[i]), copy_value(hvals_[i]));
     return t;

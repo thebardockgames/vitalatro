@@ -17,6 +17,7 @@
 #include "game/shop.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/save_manager.h"
 #include "game/state_events.h"
 #include "game/tutorial.h"
 #include "game/sound.h"
@@ -647,7 +648,7 @@ void delete_profile(UIElement *e) {
     std::string p = std::to_string(G.focused_profile);
     for (const char *f : {"/save.jkr", "/meta.jkr", "/unlock_notify.jkr"}) {
         platform::remove_save((p + f).c_str());
-        G.FILES->set(Value(p + f), Value());
+        files_clear(p + f);
     }
     G.DISCOVER_TALLIES = nullptr;
     G.PROGRESS = nullptr;

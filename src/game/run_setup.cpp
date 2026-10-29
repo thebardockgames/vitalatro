@@ -11,6 +11,7 @@
 #include "game/card_ui.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/save_manager.h"
 #include "game/state_events.h"
 #include "game/ui_definitions.h"
 
@@ -204,7 +205,7 @@ TableRef stake_option(const std::string &type) {
 bool can_continue(UIElement *e) {
     if (e && !e->config->get(K("func")).truthy()) return false;
     bool ok = false;
-    const Value savefile = G.FILES->get(Value(G.SETTINGS->get(K("profile")).to_string() + "/save.jkr"));
+    const Value savefile = files_get(G.SETTINGS->get(K("profile")).to_string() + "/save.jkr");
     if (savefile.truthy()) {
         if (!G.G_TABLE->get(K("SAVED_GAME")).truthy()) G.G_TABLE->set("SAVED_GAME", savefile);
         const Value ver = fld(G.G_TABLE->get(K("SAVED_GAME")), "VERSION");
@@ -223,7 +224,7 @@ bool can_continue(UIElement *e) {
 // G.UIDEF.run_setup_option(type)
 TableRef run_setup_option(const std::string &type) {
     const std::string prof = G.SETTINGS->get(K("profile")).to_string();
-    if (!G.G_TABLE->get(K("SAVED_GAME")).truthy()) G.G_TABLE->set("SAVED_GAME", G.FILES->get(Value(std::to_string(G.focused_profile) + "/save.jkr")));
+    if (!G.G_TABLE->get(K("SAVED_GAME")).truthy()) G.G_TABLE->set("SAVED_GAME", files_get(std::to_string(G.focused_profile) + "/save.jkr"));
     G.SETTINGS->set("current_setup", Value(type));
     G.GAME->set("viewed_back", obj(new Back(get_deck_from_name(memory()->get(K("deck"))))));
     if (!memory()->get(K("stake")).truthy()) memory()->set("stake", 1);

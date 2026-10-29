@@ -14,6 +14,7 @@
 #include "game/card_character.h"
 #include "game/functions.h"
 #include "game/g.h"
+#include "game/save_manager.h"
 #include "game/sound.h"
 #include "game/state_events.h"
 #include "game/ui_definitions.h"
@@ -258,7 +259,7 @@ TableRef create_UIBox_win() {
 void remove_save() {
     const std::string f = G.SETTINGS->get(K("profile")).to_string() + "/save.jkr";
     platform::remove_save(f.c_str());
-    G.FILES->set(Value(f), Value());
+    files_clear(f);
     G.G_TABLE->set("SAVED_GAME", Value());
     G.FILE_HANDLER->set("run", Value());
 }

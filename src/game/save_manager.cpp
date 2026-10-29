@@ -3,7 +3,9 @@
 
 #include <cstdlib>
 #include <deque>
+#include <map>
 
+#include "game/g.h"
 #include "platform/platform.h"
 #include "stb/stb_image.h"
 #include "core/stb_extra.h"
@@ -78,6 +80,9 @@ void push(Job j) {
 }
 
 std::string packed(const Value &v) { return v.is_table() ? str_pack(*v.table()) : v.to_string(); }
+
+// G.FILES entries kept as their packed text until something reads them
+std::map<std::string, std::string> packed_files;
 }  // namespace
 
 bool get_compressed(const std::string &file, std::string &out) {
@@ -123,8 +128,25 @@ void save_manager_request(const TableRef &r) {
         if (key.truthy()) push({Job::Notify, prof + "/unlock_notify.jkr", key.to_string(), prof});
     } else if (type.equals("save_run")) {
         std::string prof = profile_dir(r->get(K("profile_num")));
-        push({Job::Write, prof + "/save.jkr", packed(r->get(K("save_table"))), prof});
+        // the text is also kept as G.FILES' copy of the run (see files_get)
+        std::string text = packed(r->get(K("save_table")));
+        packed_files[prof + "/save.jkr"] = text;
+        push({Job::Write, prof + "/save.jkr", std::move(text), prof});
     }
+}
+
+Value files_get(const std::string &file) {
+    auto it = packed_files.find(file);
+    if (it != packed_files.end()) {
+        G.FILES->set(Value(file), parse_lua_literal(it->second));
+        packed_files.erase(it);
+    }
+    return G.FILES->get(Value(file));
+}
+
+void files_clear(const std::string &file) {
+    packed_files.erase(file);
+    G.FILES->set(Value(file), Value());
 }
 
 }  // namespace vl

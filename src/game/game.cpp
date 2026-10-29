@@ -1856,11 +1856,14 @@ void Globals::update(double dt) {
         (fh->get(K("force")).truthy() || fh->get(K("last_sent_stage")).num() != STAGE ||
          (fh->get(K("last_sent_pause")).truthy() != paused() && fh->get(K("run")).truthy()) || !fh->get(K("last_sent_time")).truthy() ||
          fh->get(K("last_sent_time")).num() < TIMERS.UPTIME - F_SAVE_TIMER)) {
+        const double save_t0 = time_now();
+        double save_t1 = save_t0, save_t2 = save_t0;
         if (fh->get(K("run")).truthy()) {
+            // (G.FILES[profile/save.jkr] = copy_table(G.ARGS.save_run): the request keeps the packed text, see files_get)
             save_manager_request(vl::T({{"type", "save_run"}, {"save_table", ARGS->get(K("save_run"))}, {"profile_num", SETTINGS->get(K("profile"))}}));
-            Value sr = ARGS->get(K("save_run"));
-            FILES->set(Value(SETTINGS->get(K("profile")).to_string() + "/save.jkr"), sr.is_table() ? Value(sr.table()->deep_copy()) : Value());
+            save_t1 = save_t2 = time_now();
         }
+        const bool save_progress_req = fh->get(K("progress")).truthy();
         if (fh->get(K("progress")).truthy()) {
             save_manager_request(vl::T({{"type", "save_progress"}, {"save_progress", ARGS->get(K("save_progress"))}}));
         } else if (fh->get(K("empty_profile")).truthy()) {
@@ -1874,6 +1877,10 @@ void Globals::update(double dt) {
                                         {"profile_num", SETTINGS->get(K("profile"))},
                                         {"save_profile", PROFILES->get(SETTINGS->get(K("profile")))}}));
         }
+        const double save_t3 = time_now();
+        if (save_t3 - save_t0 > 0.025)
+            platform::log("save: %.1f ms (run pack %.1f, run copy %.1f, %s %.1f)", (save_t3 - save_t0) * 1000, (save_t1 - save_t0) * 1000,
+                          (save_t2 - save_t1) * 1000, save_progress_req ? "progress" : "settings", (save_t3 - save_t2) * 1000);
         fh->set("force", false);
         fh->set("last_sent_stage", STAGE);
         fh->set("last_sent_time", TIMERS.UPTIME);
