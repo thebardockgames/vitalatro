@@ -186,6 +186,14 @@ int main(int argc, char **argv) {
             vl::G.GAME->set("dollars", std::atof(std::strchr(d, ':') + 1));
         if (f == chips_frame)
             if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = chips_val;
+        // VL_BLIND_TAG="frame:tag_x": the small blind's skip tag, from that frame on once the run has its
+        // blind tags (test hook, as REF_BLIND_TAG)
+        static bool bt_done = false;
+        if (const char *bt = std::getenv("VL_BLIND_TAG"); bt && !bt_done && std::strchr(bt, ':') && f >= std::atoi(bt))
+            if (vl::Table *tags = vl::G.GAME->get(vl::Value("round_resets")).get(vl::Value("blind_tags")).table()) {
+                tags->set("Small", vl::Value(std::strchr(bt, ':') + 1));
+                bt_done = true;
+            }
         // VL_DECK=b_plasma: the run's deck; VL_COMBO="frame:hand delta": combo_setup at that frame
         if (const char *d = std::getenv("VL_DECK"); d && f == run_frame)
             vl::G.GAME->set("viewed_back", vl::Value((vl::Object *)new vl::Back(vl::G.P_CENTERS->get(vl::Value(d)))));
