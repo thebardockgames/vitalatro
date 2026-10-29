@@ -68,7 +68,8 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [x] Una partida completa hasta ante 8 + modo infinito (24 rondas + 4 del infinito, 59.9 fps)
 
 ## 8. Distribución: web que genera el VPK en el navegador (sin datos de Balatro en nada que publiquemos)
-- [ ] El juego carga todos los recursos desde `ux0:data/Vitalatro/` (o desde dentro del VPK generado), nada embebido
+- [x] El juego carga todos los recursos desde dentro del VPK generado, nada embebido (el eboot y la base de la web no
+      contienen textos del original)
 - [x] Biblioteca C++ "asset builder" que reemplaza `tools/build_assets.py`: leer el zip del `Balatro.exe` (LOVE fusionado)
       o del `.apk`, verificar versión (1.0.1o), extraer texturas/sonidos, datos con Lua 5.1 embebido (`extract_data.lua`),
       fuentes como LOVE (`bake_fonts.py`), iconos de botones Vita (`vita_pips.py`)
@@ -82,9 +83,11 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       falta probarlo en la Vita real)
 - [ ] `sce_sys` (icono, fondo y logo del LiveArea) es arte de Balatro: quitarlo del repo y de su historial antes de publicarlo
       (la web ya genera los suyos a partir de los archivos del usuario)
-- [ ] Datos deterministas: generar `build/assets_*/data` con `vl_asset_builder` (el LuaJIT de WSL baraja el orden de las tablas
-      en cada ejecución); revisar el orden de empates en los pools (Edition, Consumeables, Tarot_Planet) y su efecto en el RNG
-- [ ] Copia de Steam (PC): probar el juego con sus datos (crt 70, sin rumble, `icons.png` distinto, textos de collabs)
+- [x] Datos deterministas: `build/assets_*/data` generados con `vl_asset_builder` (dos ejecuciones idénticas byte a
+      byte; `jokerbatch` completo pasa). Los empates de orden en los pools (Edition, Tarot_Planet, Consumeables) no
+      afectan al azar: Tarot_Planet solo se usa con clave forzada (El Loco) y la colección de ediciones usa una lista fija
+- [x] Copia de Steam: el `Balatro.exe` (1.0.1o) genera el VPK en la web y abre en Vita3K; en PC con sus datos
+      menú, ciegas, mano y vista de baraja cargan sin errores
 - [ ] Recompilar el eboot de la Vita antes de armar el sitio (el de `build/vita` es viejo) y publicar en GitHub Pages
 - [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
 
