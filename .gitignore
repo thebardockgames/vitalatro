@@ -7,3 +7,4 @@
 *.self
 *.gxp
 __pycache__/
+/save/
