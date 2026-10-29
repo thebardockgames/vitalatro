@@ -180,7 +180,7 @@ TableRef speech_bubble(const std::string &text_key, const TableRef &loc_vars) {
             if (Table *line = text->get(k).table())
                 for (int i = 1; i <= line->len(); i++)
                     if (Table *conf = fld(line->get(i), "config").table(); conf && conf->get(K("scale")).is_num())
-                        conf->set("scale", conf->get(K("scale")).num() * 1.5);
+                        conf->set("scale", conf->get(K("scale")).num() * 2);
     TableRef row = new_table();
     for (int k = 1; k <= text->len(); k++) row->push(node(UIT_R, vl::T({{"align", "cl"}}), TableRef(text->get(k).table())));
     return TableRef(
