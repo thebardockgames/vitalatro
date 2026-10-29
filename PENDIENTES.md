@@ -4,8 +4,8 @@ Auditoría completa contra el código original (todas las funciones de los .lua,
 tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se marca con `[x]` al terminar.
 
 ## 1. Rendimiento en la Vita
-- [ ] Vista de baraja a 60 fps: tienda 59.4, ciega grande 59.9; contra un jefe que debilita 55.2
-      (CPU al límite dibujando las 52 cartas: optimizar el dibujo de cartas)
+- [ ] Vista de baraja a 60 fps: tienda 59.4, ciega grande 59.9; contra un jefe que debilita 50-55
+      (GPU al límite: CRT, fondo detrás del panel y sobredibujo; la CPU dibuja en ~9 ms)
 - [x] Medir en la Vita cada pantalla pesada: colección (todas las páginas), info de partida,
       configuración de partida, game over / victoria, tienda con sobre jumbo abierto: 59.9
       (la página de ediciones de la colección va a 56.9: GPU, shaders de edición + fondo del menú)
@@ -88,8 +88,9 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       afectan al azar: Tarot_Planet solo se usa con clave forzada (El Loco) y la colección de ediciones usa una lista fija
 - [x] Copia de Steam: el `Balatro.exe` (1.0.1o) genera el VPK en la web y abre en Vita3K; en PC con sus datos
       menú, ciegas, mano y vista de baraja cargan sin errores
-- [ ] Publicar en GitHub Pages (el sitio de `build/site` ya está armado con el eboot actual)
-- [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
+- [ ] Publicar en GitHub Pages: repositorio público `vitalatro-web` solo con la página (`publish_site.sh`); el
+      código queda en el repositorio privado `vitalatro`
+- [x] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
       (web y eboot: sin texturas, sonidos ni textos del original; van a propósito los `.gxp` y las tres imágenes de
       `sce_sys`; repo: sin textos del original)
 
