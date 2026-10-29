@@ -15,6 +15,7 @@ trap 'rm -rf "$TMP"' EXIT
 cp -r "$SITE/." "$TMP/"
 cd "$TMP"
 git init -q -b gh-pages
+git config core.autocrlf false  # the files go up byte for byte (base/manifest.json holds their hashes)
 git add -A
 git -c user.name="$(git -C "$ROOT" config user.name)" -c user.email="$(git -C "$ROOT" config user.email)" commit -q -m "Site from $(git -C "$ROOT" rev-parse --short HEAD)"
 git push -q -f "$SITE_REPO" gh-pages
