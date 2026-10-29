@@ -7,6 +7,7 @@
 #include <functional>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -83,13 +84,13 @@ int main(int argc, char **argv) {
         run_frame = std::atoi(r);
         if (const char *c = std::strchr(r, ':')) run_seed = c + 1;
     }
-    // VL_SET_CHIPS="frame:chips": G.GAME.blind.chips = chips at that frame (test hook)
-    int chips_frame = -1;
-    double chips_val = 0;
+    // VL_SET_CHIPS="frame:chips[,frame:chips...]": G.GAME.blind.chips = chips at those frames (test hook)
+    std::map<int, double> chips_at;
     if (const char *c = std::getenv("VL_SET_CHIPS"))
-        if (std::strchr(c, ':')) {
-            chips_frame = std::atoi(c);
-            chips_val = std::atof(std::strchr(c, ':') + 1);
+        for (const char *p = c; p && *p;) {
+            if (const char *colon = std::strchr(p, ':')) chips_at[std::atoi(p)] = std::atof(colon + 1);
+            p = std::strchr(p, ',');
+            if (p) p++;
         }
     // with the dev server the runner keeps going in real time (60 fps) until it is killed
     const bool dev = std::getenv("VL_DEV") != nullptr;
@@ -184,8 +185,8 @@ int main(int argc, char **argv) {
         // VL_DOLLARS="frame:n": G.GAME.dollars = n at that frame (test hook)
         if (const char *d = std::getenv("VL_DOLLARS"); d && std::strchr(d, ':') && std::atoi(d) == f)
             vl::G.GAME->set("dollars", std::atof(std::strchr(d, ':') + 1));
-        if (f == chips_frame)
-            if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = chips_val;
+        if (auto it = chips_at.find(f); it != chips_at.end())
+            if (auto *b = vl::G.GAME->get(vl::Value("blind")).as<vl::Blind>()) b->chips = it->second;
         // VL_BLIND_TAG="frame:tag_x": the small blind's skip tag, from that frame on once the run has its
         // blind tags (test hook, as REF_BLIND_TAG)
         static bool bt_done = false;

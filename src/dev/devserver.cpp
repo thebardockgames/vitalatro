@@ -381,7 +381,18 @@ void run_command(Request *r) {
             if (!e) return;
             bool live = false;
             G.I.UIBOX.each([&](Node *v) { live |= v == e->box; });
-            owners[!e->box ? "<none>" : live ? ui_box_name(e->box) : "gone:" + ui_box_name(e->box)]++;
+            if (live) {
+                owners[ui_box_name(e->box)]++;
+                return;
+            }
+            // its box is gone (do not touch it): name the element by its own config
+            std::string what = "gone";
+            for (const char *k : {"id", "text", "button", "func"})
+                if (Value x = e->config ? e->config->get(Value(k)) : Value(); x.is_str()) {
+                    what += std::string(" ") + k + "=" + x.to_string();
+                    break;
+                }
+            owners[what]++;
         });
         out += "\nUIElement owners:";
         for (auto &[k, c] : owners) out += " [" + k + "]=" + std::to_string(c);

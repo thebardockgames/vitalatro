@@ -4,6 +4,7 @@
 #include "core/time.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 
 #include "engine/controller.h"
@@ -356,6 +357,13 @@ void UIBox::set_parent_child(const TableRef &node, UIElement *par) {
 void UIBox::remove() {
     if (this == G.OVERLAY_MENU.get()) G.REFRESH_ALERTS = true;
     if (UIRoot) UIRoot->remove();
+    // Vitalatro: elements of this box no longer in its tree (a few per shop) go too; otherwise they
+    // stay registered after the box is freed, updated every frame, with a dangling box pointer
+    std::vector<Ref<UIElement>> strays;
+    G.MOVEABLES.each([&](Moveable *m) {
+        if (auto *e = dynamic_cast<UIElement *>(m); e && e->box == this) strays.push_back(Ref<UIElement>(e));
+    });
+    for (auto &e : strays) e->remove();
     Value it = config ? cv(config, K("instance_type")) : Value();
     if (it.equals("POPUP")) G.I.POPUP.remove(this);
     else if (it.equals("ALERT")) G.I.ALERT.remove(this);
@@ -385,6 +393,41 @@ std::string first_text(const Value &n, int depth = 0) {
 }  // namespace
 
 std::string ui_box_name(const UIBox *b) { return first_text(Value(b->definition)); }
+
+UIBox::~UIBox() {
+    // VL_LEAKCHECK: a box freed while elements of it are still registered (they leak, with a dangling box)
+#ifdef VL_DEV
+    static const bool check = true;
+#else
+    static const bool check = std::getenv("VL_LEAKCHECK") != nullptr;
+#endif
+    if (!check) return;
+    int n = 0;
+    std::string names;
+    G.MOVEABLES.each([&](Moveable *m) {
+        auto *e = dynamic_cast<UIElement *>(m);
+        if (!e || e->box != this) return;
+        n++;
+        std::string what = "uit" + std::to_string(e->UIT);
+        for (const char *k : {"id", "text", "button", "func", "ref_value"})
+            if (Value x = e->config ? e->config->get(Value(intern(k))) : Value(); x.is_str()) {
+                what += std::string(" ") + k + "=" + x.to_string();
+                break;
+            }
+        if (e->config && e->config->get(Value(intern("object"))).truthy()) what += " +object";
+        int dup = 0, parent_live = 0, in_parent = 0;
+        G.MOVEABLES.each([&](Moveable *o) {
+            dup += o == e;
+            parent_live += e->parent && o == e->parent;
+        });
+        if (e->parent && parent_live) e->parent->children.each([&](Str *, Node *c) { in_parent += c == e; });
+        what += " x" + std::to_string(dup) + (e->parent ? (parent_live ? std::string(" parent live, listed ") + std::to_string(in_parent) : " parent gone") : "");
+        names += " [" + what + "]";
+    });
+    if (n)
+        platform::log("LEAK: box '%s' freed with %d live elements (removed: %s):%s", first_text(Value(definition)).c_str(), n, UIRoot ? "no" : "yes",
+                      names.c_str());
+}
 
 void UIBox::draw() {
     if (!UIRoot) {
@@ -1170,9 +1213,13 @@ void UIElement::release(Node *other) {
 
 // ------------------------------------------------------------------ remove_all
 void remove_all(Children &c) {
-    for (int i = c.count() - 1; i >= 0; i--) {
-        NodeRef v = c.at(i);
-        c.remove_index(i);
+    // the array part from a copy: removing one (an object's CardArea, say) can change the container
+    // while it is walked, and an index walk then skips children, which stay registered (a leak)
+    std::vector<NodeRef> arr;
+    c.each_array([&](Node *v) { arr.push_back(NodeRef(v)); });
+    for (int i = (int)arr.size() - 1; i >= 0; i--) {
+        NodeRef &v = arr[i];
+        c.remove(v.get());
         if (v) {
             remove_all(v->children);
             v->remove();

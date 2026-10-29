@@ -14,6 +14,7 @@ class UIBox : public Moveable {
 public:
     // UIBox{T = ..., definition = ..., config = ...}
     UIBox(TableRef definition, TableRef config, const Transform *T = nullptr);
+    ~UIBox() override;
 
     UIElement *get_UIE_by_ID(std::string_view id, UIElement *node = nullptr);
     void calculate_xywh(UIElement *node, Transform &T, bool recalculate = false, float scale = 1, bool has_scale = false);
