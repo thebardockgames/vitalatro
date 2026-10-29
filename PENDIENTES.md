@@ -88,8 +88,9 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       afectan al azar: Tarot_Planet solo se usa con clave forzada (El Loco) y la colección de ediciones usa una lista fija
 - [x] Copia de Steam: el `Balatro.exe` (1.0.1o) genera el VPK en la web y abre en Vita3K; en PC con sus datos
       menú, ciegas, mano y vista de baraja cargan sin errores
-- [ ] Publicar en GitHub Pages: repositorio público `vitalatro-web` solo con la página (`publish_site.sh`); el
-      código queda en el repositorio privado `vitalatro`
+- [x] Publicado: la página en https://thebardockgames.github.io/vitalatro-web/ (repositorio `vitalatro-web`,
+      `publish_site.sh`; el VPK generado desde ahí es idéntico byte a byte al probado en la Vita); el código en
+      https://github.com/thebardockgames/vitalatro
 - [x] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
       (web y eboot: sin texturas, sonidos ni textos del original; van a propósito los `.gxp` y las tres imágenes de
       `sce_sys`; repo: sin textos del original)

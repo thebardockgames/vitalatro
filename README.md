@@ -21,7 +21,7 @@ Todo se compila en WSL:
   (los shaders de la Vita necesitan el compilador de shaders del SDK de Sony).
 - Generador de VPK (WebAssembly, Emscripten en `~/emsdk`): `tools/asset_builder/build_site.sh` arma la página en
   `build/site`; `tools/asset_builder/publish_site.sh` (Git Bash) la sube a la rama `gh-pages` del repositorio
-  público `vitalatro-web` (solo la página; el código queda aquí, privado).
+  `vitalatro-web` (solo la página).
 - Build de desarrollo (VLTR00002, servidor de control en el puerto 7777): `-DVL_DEV=ON` y `tools/vitactl.py`.
 
 El estado del trabajo está en [PENDIENTES.md](PENDIENTES.md).

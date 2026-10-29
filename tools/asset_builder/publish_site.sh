@@ -1,6 +1,6 @@
 #!/bin/bash
 # Publishes build/site (made by build_site.sh) to the gh-pages branch of the public site repository
-# ($SITE_REPO, default thebardockgames/vitalatro-web; the code repository stays private), as a single
+# ($SITE_REPO, default thebardockgames/vitalatro-web), as a single
 # commit with no history (each publish replaces the previous one):
 #   tools/asset_builder/publish_site.sh   (Git Bash on Windows: it pushes with the gh credentials)
 set -e
