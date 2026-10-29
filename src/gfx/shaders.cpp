@@ -180,12 +180,13 @@ float shader_cycles(ShaderId id) {
     case ShaderId::VlD0NegativeShine: return 65.f;
     case ShaderId::VlD0Booster: return 67.f;
     case ShaderId::VlD0Voucher: return 65.f;
-    case ShaderId::VlD0Debuff: return 369.f;
+    case ShaderId::VlD0Debuff: return 42.f;
     case ShaderId::VlD0Played: return 74.f;
     case ShaderId::VlD0Hologram: return 77.f;
     default:
         if (id == ShaderId::VlDmVoucher || id == ShaderId::VlDmBooster) return 90.f;
         if (id == ShaderId::VlDmHolo) return 181.f;
+        if (id == ShaderId::VlDmDebuff) return 65.f;
         if (id == ShaderId::VlDmFoil) return 98.f;
         if (id == ShaderId::VlDmNegativeShine) return 89.f;
         if (id == ShaderId::VlDmPolychrome) return 156.f;

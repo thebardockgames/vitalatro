@@ -628,6 +628,8 @@ Node *UIElement::can_drag() {
     return box->can_drag();
 }
 
+bool (*g_ui_hidden)(Node *) = nullptr;
+
 void UIElement::draw_children() {
     if (!states.visible) return;
     children.each([](Str *name, Node *c) {
@@ -635,6 +637,7 @@ void UIElement::draw_children() {
         if (name == K("h_popup") || name == K("alert")) return;
         if (v) {
             if (cb(v->config, K("draw_layer"))) return;
+            if (g_ui_hidden && g_ui_hidden(v)) return;
             // (dev profile: draw_self time and count by element type; children are measured on their own)
             const double t0 = time_now();
             if (!cb(v->config, K("draw_after"))) v->draw_self();

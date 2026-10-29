@@ -286,8 +286,8 @@ void reset_blinds() {
 }
 
 Value get_new_boss() {
-    // VL_BOSS=bl_x: every boss is that one (test hook, as REF_BOSS)
-    static const char *forced = std::getenv("VL_BOSS");
+    // VL_BOSS=bl_x: every boss is that one (test hook, as REF_BOSS; the dev server's 'boss' sets it)
+    const char *forced = std::getenv("VL_BOSS");
     if (forced && *forced) return Value(forced);
     if (!gv("perscribed_bosses").truthy()) G.GAME->set("perscribed_bosses", Value(new_table()));
     const double ante = fld(gv("round_resets"), "ante").num();

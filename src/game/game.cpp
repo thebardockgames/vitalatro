@@ -225,15 +225,20 @@ void update_overlay_zoom() {
     z.py1 = b.y;
 }
 
-// Vitalatro: with an enlarged overlay panel, a top-level object entirely behind it (with a margin
-// for shadows, tilt and the tags hanging off cards) is hidden and is not drawn
-bool hidden_by_overlay(Node *v) {
+// Vitalatro: with an enlarged overlay panel, an object entirely behind it (with a margin for shadows,
+// tilt and the tags hanging off cards) is hidden and is not drawn
+bool behind_overlay_panel(Node *v) {
     const auto &z = G.overlay_zoom;
-    auto *m = dynamic_cast<Moveable *>(v);
-    if (!z.on || !m || in_overlay(v)) return false;
+    auto *m = static_cast<Moveable *>(v);
     const float pad = 0.4f, inset = 0.25f;
     const float x = m->VT.x + G.ROOM->T->x, y = m->VT.y + G.ROOM->T->y;
     return x - pad > z.px0 + inset && y - pad > z.py0 + inset && x + m->VT.w + pad < z.px1 - inset && y + m->VT.h + pad < z.py1 - inset;
+}
+
+bool hidden_by_overlay(Node *v) {
+    const auto &z = G.overlay_zoom;
+    auto *m = dynamic_cast<Moveable *>(v);
+    return z.on && m && !in_overlay(v) && behind_overlay_panel(v);
 }
 }  // namespace
 
@@ -1913,7 +1918,12 @@ void Globals::draw() {
                 v != debug_tools.get() && v != online_leaderboard.get() && v != achievement_notification.get()) {
                 // the deck peek (L2) grows with large menus, like the description popups
                 if (v == deck_preview.get() && large_menus) draw_popup_large(v, 1.6f);
-                else if (!hidden_by_overlay(v)) draw_node(v);
+                else if (!hidden_by_overlay(v)) {
+                    // a box partly behind the panel: its hidden elements are not drawn
+                    if (G.overlay_zoom.on && !in_overlay(v)) g_ui_hidden = behind_overlay_panel;
+                    draw_node(v);
+                    g_ui_hidden = nullptr;
+                }
             }
         });
         prof(2);

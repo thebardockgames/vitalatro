@@ -289,8 +289,8 @@ void vl_varyings(vec2 texture_coords, out vec4 v0, out vec4 v1, out vec4 v2)
 
 # debuff.fs without the HSL round trip: at a fixed hue and lightness each channel is l + C * k(hue),
 # with chroma C = high - low = S * (1 - |2l - 1|). The effect only rescales S and l, so the new
-# colour is l' + C' * (c - l) / C, and the cross's hue 1 (red) is the direction (.5, -.5, -.5),
-# also HSL()'s hue for a grey input. Same results up to rounding, branchless.
+# colour is l' + C' * (c - l) / C, and the cross's hue 1 (red) is the direction (.5, -.5, -.5).
+# Same results up to rounding, branchless.
 DEBUFF = """vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
 {
     vec4 tex = Texel(texture, texture_coords);
@@ -300,19 +300,17 @@ DEBUFF = """vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 s
     MY_HIGHP_OR_MEDIUMP number high = max(c.r, max(c.g, c.b));
     MY_HIGHP_OR_MEDIUMP number delta = high - low;
     MY_HIGHP_OR_MEDIUMP number l = .5 * (high + low);
-    MY_HIGHP_OR_MEDIUMP number grey = 1. - step(1e-20, delta);
+    // (a grey input would need g - r = 0.25 exactly, which 8-bit texels never give: no grey case)
     MY_HIGHP_OR_MEDIUMP vec3 red = vec3(.5, -.5, -.5);
-    MY_HIGHP_OR_MEDIUMP vec3 k = mix((c - l) / max(delta, 1e-20), red, grey);
+    MY_HIGHP_OR_MEDIUMP vec3 k = (c - l) / max(delta, 1e-20);
     MY_HIGHP_OR_MEDIUMP number width = 0.1 * (1. - step(abs(debuff.g), 0.));
-    MY_HIGHP_OR_MEDIUMP number d1 = uv.x + uv.y;
-    MY_HIGHP_OR_MEDIUMP number d2 = (1. - uv.x) + uv.y;
-    // (d > 1 - width && d < 1 + width) for either diagonal, strict as in the original
-    MY_HIGHP_OR_MEDIUMP number test = max((1. - step(d1, 1. - width)) * (1. - step(1. + width, d1)), (1. - step(d2, 1. - width)) * (1. - step(1. + width, d2)));
-    k = mix(k, red, test);
-    MY_HIGHP_OR_MEDIUMP number s2 = mix(0.25, 0.7, test);
-    MY_HIGHP_OR_MEDIUMP number l2 = l * mix(0.7, 0.8, test);
+    // |d - 1| < width for either diagonal d = uv.x + uv.y, 1 - uv.x + uv.y (strict, as in the original)
+    MY_HIGHP_OR_MEDIUMP number test = 1. - step(width, min(abs(uv.x + uv.y - 1.), abs(uv.y - uv.x)));
+    k = k + (red - k) * test;
+    MY_HIGHP_OR_MEDIUMP number s2 = 0.25 + 0.45 * test;
+    MY_HIGHP_OR_MEDIUMP number l2 = l * (0.7 + 0.1 * test);
     MY_HIGHP_OR_MEDIUMP number c2 = s2 * (1. - abs(2. * l2 - 1.));
-    tex = vec4(l2 + c2 * k, tex.a * mix(0.3, 1., test));
+    tex = vec4(l2 + c2 * k, tex.a * (0.3 + 0.7 * test));
     return dissolve_mask(tex*colour, texture_coords, uv);
 }"""
 

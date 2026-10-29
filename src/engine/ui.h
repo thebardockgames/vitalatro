@@ -89,6 +89,10 @@ public:
 
 enum RectType { RECT_FILL, RECT_SHADOW, RECT_LINE, RECT_EMBOSS, RECT_LINE_EMBOSS };
 
+// Vitalatro: while set, UI elements it reports as hidden (behind an enlarged overlay panel) are not
+// drawn, nor their children
+extern bool (*g_ui_hidden)(Node *);
+
 // functions/misc_functions.lua remove_all(t)
 void remove_all(Children &c);
 

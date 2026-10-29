@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/time.h"
+#include "game/blind.h"
 #include "game/card_factory.h"
 #include "game/g.h"
 #include "game/run.h"
@@ -331,6 +332,17 @@ void run_command(Request *r) {
             mask |= 1ull << found;
         }
         gfx::g_skip_shaders = mask;
+        finish(r, true, "");
+    } else if (c == "boss") {
+        // boss <key>: every new boss is that one, as VL_BOSS (no args: back to random)
+        if (a.empty()) unsetenv("VL_BOSS");
+        else setenv("VL_BOSS", a[0].c_str(), 1);
+        finish(r, true, "");
+    } else if (c == "chips") {
+        // chips <n>: the current blind's target score, as VL_SET_CHIPS
+        Blind *b = G.GAME ? G.GAME->get(Value("blind")).as<Blind>() : nullptr;
+        if (!b) return finish(r, false, "no blind");
+        b->chips = std::atof(arg(0, "1").c_str());
         finish(r, true, "");
     } else if (c == "combo") {
         // combo [hand size delta]: the naneinf stress test (combo_setup), before drawing the hand
