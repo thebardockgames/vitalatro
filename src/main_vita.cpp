@@ -10,6 +10,7 @@ int main() {
     vl::platform::init();
     if (!vl::gfx::init()) vl::platform::fatal("gfx init failed");
 
+#ifdef VL_DEV
     // holding SELECT while the game boots opens the M0 rendering benchmark/diagnostics
     vl::platform::Input in;
     vl::platform::poll_input(in);
@@ -26,6 +27,7 @@ int main() {
 
     // holding R opens the run-like debug table instead of the menus (Globals::debug_table)
     if (in.buttons & vl::platform::BTN_R) vl::G.vl_debug_table = true;
+#endif
     vl::game_boot();
 #ifdef VL_DEV
     vl::dev::start();

@@ -21,7 +21,13 @@ void game_init();  // game.lua Game:init + set_globals + init_window
 namespace {
 double dt_smooth = 1.0 / 100;
 
-// Performance overlay (SELECT toggles it) and a periodic log line.
+// Performance overlay (SELECT toggles it) and a periodic log line, in the dev build only (SELECT is
+// the game's 'back' button).
+#ifdef VL_DEV
+constexpr bool kDev = true;
+#else
+constexpr bool kDev = false;
+#endif
 bool show_fps = false;
 uint32_t prev_buttons = 0;
 double fps_acc = 0, fps_max = 0, fps_shown = 0, fps_max_shown = 0, log_timer = 0;
@@ -63,7 +69,6 @@ namespace {
 double bench_hold = 0, bench_t = 0, bench_sum = 0, bench_submit = 0;
 int bench_frames = 0;
 void bench_frame(double dt, uint32_t buttons) {
-    const uint32_t LR = platform::BTN_L | platform::BTN_R;
     if (G.vl_bench < 0 || bench_t > 0) {
         bench_t += dt;
         bench_sum += dt;
@@ -90,6 +95,7 @@ void bench_frame(double dt, uint32_t buttons) {
     }
     // holding L+R starts the GPU bench in the dev build only (L1/R1 switch the menus' tabs)
 #ifdef VL_DEV
+    const uint32_t LR = platform::BTN_L | platform::BTN_R;
     bench_hold = (buttons & LR) == LR ? bench_hold + dt : 0;
 #else
     (void)buttons;
@@ -148,13 +154,15 @@ void page_frame(double dt) {
 
 void perf_frame(double dt, uint32_t buttons) {
     bench_frame(dt, buttons);
-    if (G.vl_bench == 0) page_frame(dt);
+    if (kDev && G.vl_bench == 0) page_frame(dt);
     static const char *forced = std::getenv("VL_BENCH");  // PC: render one bench mode
     if (forced) G.vl_bench = std::atoi(forced);
     gfx::g_occlusion = G.vl_bench != 6 && !std::getenv("VL_NO_OCC");
+#ifdef VL_DEV
     if ((buttons & platform::BTN_SELECT) && !(prev_buttons & platform::BTN_SELECT)) show_fps = !show_fps;
+#endif
     prev_buttons = buttons;
-    if (dt > 0.025 && spikes_logged < 40) {
+    if (kDev && dt > 0.025 && spikes_logged < 40) {
         platform::log("spike: %.1f ms | input %.1f update %.1f draw %.1f submit %.1f | unaccounted %.1f | state %d t %.2f",
                       dt * 1000, last_input, last_upd, last_draw, last_submit,
                       dt * 1000 - last_input - last_upd - last_draw - last_submit, G.STATE,
@@ -169,7 +177,7 @@ void perf_frame(double dt, uint32_t buttons) {
         fps_shown = fps_frames / fps_acc;
         fps_max_shown = fps_max * 1000;
         log_timer += fps_acc;
-        if (log_timer >= 5) {
+        if (kDev && log_timer >= 5) {
             int mem_user, mem_cdram;
             platform::free_memory_mb(mem_user, mem_cdram);
             platform::log("perf: %.1f fps, worst frame %.1f ms | cpu update %.1f (max %.1f) draw %.1f (max %.1f) ms | state %d | free MB ram %d cdram %d",

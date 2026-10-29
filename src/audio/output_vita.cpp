@@ -30,7 +30,9 @@ int audio_thread(SceSize, void *) {
         total += dt;
         if (dt > worst) worst = dt;
         if (++grains == 235) {
+#ifdef VL_DEV
             platform::log("audio: mix avg %.2f ms, max %.2f ms per 21.3 ms grain", total / 235 / 1000.0, worst / 1000.0);
+#endif
             total = worst = 0;
             grains = 0;
         }
