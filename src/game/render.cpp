@@ -3,12 +3,14 @@
 #include "game/render.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
 
 #include "engine/sprite.h"
+#include "platform/platform.h"
 #include "game/g.h"
 
 namespace vl::render {
@@ -132,9 +134,19 @@ float smoothstepf(float e0, float e1, float x) {
 // current crt setting (the distortion only depends on it).
 // The distortion/mask map (RGBA16F) and the scanline mask at each pixel's distorted tc (RGBA8,
 // (mask + 1) / 3 per channel: CRT.fs's rgb_scanline, which only depends on the pixel).
-void build_crt_map(float crt, float scanlines) {
-    std::vector<uint16_t> px((size_t)SW * SH * 4);
-    std::vector<uint8_t> scan((size_t)SW * SH * 4);
+struct CrtMapData {
+    std::vector<uint16_t> px;
+    std::vector<uint8_t> scan;
+    float crt, scanlines;
+    Texture *map = nullptr, *scan_tex = nullptr;  // created from px/scan
+};
+void fill_crt_map(CrtMapData &m, float crt, float scanlines) {
+    m.px.resize((size_t)SW * SH * 4);
+    m.scan.resize((size_t)SW * SH * 4);
+    m.crt = crt;
+    m.scanlines = scanlines;
+    std::vector<uint16_t> &px = m.px;
+    std::vector<uint8_t> &scan = m.scan;
     float dfx = 1.0f + 0.07f * crt / 100, dfy = 1.0f + 0.1f * crt / 100;
     float sf = 1.0f - 0.008f * crt / 100, feather = 0.01f;
     for (int y = 0; y < SH; y++)
@@ -157,16 +169,38 @@ void build_crt_map(float crt, float scanlines) {
             for (int c = 0; c < 3; c++) so[c] = (uint8_t)std::lround((std::clamp(sc[c], -1.0, 2.0) + 1) / 3 * 255);
             so[3] = 255;
         }
-    TextureDesc d{SW, SH, (const uint8_t *)px.data()};
-    d.half_float = true;
-    destroy_texture(crt_map);
-    crt_map = create_texture(d);
-    TextureDesc ds{SW, SH, scan.data()};
-    destroy_texture(crt_scan);
-    crt_scan = create_texture(ds);
-    crt_map_value = crt;
-    crt_map_scanlines = scanlines;
 }
+
+void create_crt_textures(CrtMapData &m) {
+    TextureDesc d{SW, SH, (const uint8_t *)m.px.data()};
+    d.half_float = true;
+    m.map = create_texture(d);
+    TextureDesc ds{SW, SH, m.scan.data()};
+    m.scan_tex = create_texture(ds);
+}
+
+void use_crt_map(CrtMapData &m) {
+    if (!m.map) create_crt_textures(m);
+    destroy_texture(crt_map);
+    destroy_texture(crt_scan);
+    crt_map = m.map;
+    crt_scan = m.scan_tex;
+    m.map = m.scan_tex = nullptr;
+    crt_map_value = m.crt;
+    crt_map_scanlines = m.scanlines;
+}
+
+void build_crt_map(float crt, float scanlines) {
+    CrtMapData m;
+    fill_crt_map(m, crt, scanlines);
+    use_crt_map(m);
+}
+
+// A new crt setting (the options slider) rebuilds the map on the worker thread, textures included
+// where the backend allows it (~0.3 s of CPU plus the upload: a hitch on every slider step if done
+// in the frame); the frame keeps the previous map until the new one is ready.
+CrtMapData crt_async;
+std::atomic<int> crt_async_state{0};  // 0 idle, 1 building, 2 ready
 }  // namespace
 
 void init() {
@@ -293,7 +327,23 @@ void crt_pass(Canvas *canvas, const CrtParams &p) {
     ShaderId id = ShaderId::CRT;
     if (g_fast) {
         const float scanlines = SH * 0.75f / G.CANV_SCALE;
-        if (p.crt != crt_map_value || scanlines != crt_map_scanlines) build_crt_map(p.crt, scanlines);
+        if (crt_async_state.load() == 2) {
+            use_crt_map(crt_async);
+            crt_async_state.store(0);
+        }
+        if ((p.crt != crt_map_value || scanlines != crt_map_scanlines) && crt_async_state.load() == 0) {
+            if (!crt_map) {
+                build_crt_map(p.crt, scanlines);
+            } else {
+                crt_async_state.store(1);
+                const float crt = p.crt;
+                platform::run_async([crt, scanlines] {
+                    fill_crt_map(crt_async, crt, scanlines);
+                    if (create_texture_any_thread()) create_crt_textures(crt_async);
+                    crt_async_state.store(2);
+                });
+            }
+        }
         set_aux_texture(0, crt_scan);
         set_aux_texture(2, crt_map);
         id = ShaderId::CrtMap;
