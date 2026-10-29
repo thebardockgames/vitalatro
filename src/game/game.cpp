@@ -314,6 +314,8 @@ void Globals::start_up() {
     Table *gr = SETTINGS->get(K("GRAPHICS")).table();
     if (gr->get(K("texture_scaling")).truthy()) gr->set("texture_scaling", gr->get(K("texture_scaling")).num() > 1 ? 2 : 1);
     if (!SETTINGS->get(K("language")).truthy()) SETTINGS->set("language", "en-us");
+    // VL_LANG=ja: that language (test hook, as REF_LANG)
+    if (const char *l = std::getenv("VL_LANG"); l && *l) SETTINGS->set("language", Value(l));
 
     CONTROLLER = new Controller();
     SETTINGS->set("QUEUED_CHANGE", Value(new_table()));

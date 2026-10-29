@@ -46,7 +46,8 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Vista de baraja: pequeña diferencia de inclinación por carta (ambient tilt / IDs)
 - [ ] Mipmaps manuales para texturas (`TODO(manual-mips)`), cartas pequeñas igual que en PC
 - [ ] Fondo: campo k=1 en núcleos de CPU en vez de k=2 a media tasa (decisión pendiente)
-- [ ] Revisar los 15 idiomas en pantalla (fuentes CJK: SC/TC están a tamaño 47)
+- [x] Revisar los 15 idiomas en pantalla contra el original (`VL_LANG`/`REF_LANG`: selección de ciega, mano,
+      vista de baraja): 13 iguales; chino simplificado/tradicional ~0.5 px más abajo (métrica de la fuente CJK)
 - [x] Tutorial: texto del globo de Jimbo más grande en la Vita (x1.5 con la opción de menús grandes)
 
 ## 6. Regresión completa contra el original
