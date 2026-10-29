@@ -4,7 +4,8 @@ Auditoría completa contra el código original (todas las funciones de los .lua,
 tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se marca con `[x]` al terminar.
 
 ## 1. Rendimiento en la Vita
-- [ ] Vista de baraja a 60 fps (estaba en 43–46; VPK con optimizaciones subido, falta medir)
+- [ ] Vista de baraja a 60 fps: tienda 59.4, ciega grande 59.9; contra un jefe que debilita 55.2
+      (CPU al límite dibujando las 52 cartas: optimizar el dibujo de cartas)
 - [ ] Medir en la Vita cada pantalla pesada: colección (todas las páginas), info de partida, lista de retos,
       configuración de partida, game over / victoria, tienda con sobres abiertos
 - [ ] Coste por caja de la UI (~26 µs por caja en la Vita): seguir reduciendo copias de tablas en `draw_self`
