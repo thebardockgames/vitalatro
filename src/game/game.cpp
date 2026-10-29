@@ -1608,8 +1608,6 @@ void Globals::main_menu(std::string_view change_context) {
     }
     SPLASH_LOGO->dissolve_colours = A({G.colour("WHITE"), G.colour("WHITE")});
     SPLASH_LOGO->dissolve = 1;
-    // start baking the logo's dissolve field now (worker thread): it stays invisible for 1.8 s
-    if (FAST_SHADERS) SPLASH_LOGO->dissolve_field(SPLASH_LOGO->ID);
 
     CardRef replace_card = new Card(title_top->T->x, title_top->T->y, 1.2f * CARD_W * SC_scale, 1.2f * CARD_H * SC_scale,
                                     P_CARDS->get(K("S_A")), P_CENTERS->get(K("c_base")));
