@@ -6,8 +6,11 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 ## 1. Rendimiento en la Vita
 - [ ] Vista de baraja a 60 fps: tienda 59.4, ciega grande 59.9; contra un jefe que debilita 55.2
       (CPU al límite dibujando las 52 cartas: optimizar el dibujo de cartas)
-- [ ] Medir en la Vita cada pantalla pesada: colección (todas las páginas), info de partida, lista de retos,
-      configuración de partida, game over / victoria, tienda con sobres abiertos
+- [x] Medir en la Vita cada pantalla pesada: colección (todas las páginas), info de partida,
+      configuración de partida, game over / victoria, tienda con sobre jumbo abierto: 59.9
+      (la página de ediciones de la colección va a 56.9: GPU, shaders de edición + fondo del menú)
+- [x] Partidas largas: el guardado periódico costaba 132 ms en el hilo principal (ahora 12 ms); fugas de
+      objetos por ronda (botón de cobrar, partículas del jefe, elementos huérfanos de la tienda) corregidas
 - [ ] Coste por caja de la UI (~26 µs por caja en la Vita): seguir reduciendo copias de tablas en `draw_self`
 
 ## 2. Tutorial
@@ -44,11 +47,11 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [ ] Mipmaps manuales para texturas (`TODO(manual-mips)`), cartas pequeñas igual que en PC
 - [ ] Fondo: campo k=1 en núcleos de CPU en vez de k=2 a media tasa (decisión pendiente)
 - [ ] Revisar los 15 idiomas en pantalla (fuentes CJK: SC/TC están a tamaño 47)
-- [ ] Tutorial: texto del globo de Jimbo más grande en la Vita (casi no se lee; con la opción de menús grandes)
+- [x] Tutorial: texto del globo de Jimbo más grande en la Vita (x1.5 con la opción de menús grandes)
 
 ## 6. Regresión completa contra el original
 - [x] `jokerbatch` (todos los jokers)
-- [x] `tagbatch` (todas las etiquetas; Orbital pendiente: el original se cuelga si se agrega fuera de un salto de ciega)
+- [x] `tagbatch` (todas las etiquetas; Orbital comprobada con un salto de ciega real: `VL_BLIND_TAG`)
 - [x] `bossbatch` (los 28 jefes)
 - [x] Consumibles: todos los tarots, planetas y espectrales
 - [x] Vouchers: los 32
@@ -56,12 +59,12 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
 - [x] Retos: los 20 (inicio y reglas)
 - [x] Sobres: los 5 tipos con sus variantes
 
-## 7. Verificar en la Vita contigo
-- [ ] Guardar y continuar partida (tienda, mitad de mano, sobre abierto)
-- [ ] Ya no hay tirón al descartar contra un jefe
-- [ ] Salir con el botón PS / suspender y volver (audio, guardado)
-- [ ] Teclado en pantalla para la semilla y nombres
-- [ ] Una partida completa hasta ante 8 + modo infinito
+## 7. Verificar en la Vita (con el MCP de la Vita)
+- [x] Guardar y continuar partida (tienda, mitad de mano, sobre abierto)
+- [x] Ya no hay tirón al descartar contra un jefe
+- [x] Salir con el botón PS / suspender y volver (audio, guardado)
+- [x] Teclado en pantalla para la semilla (igual que el original con las mismas entradas)
+- [x] Una partida completa hasta ante 8 + modo infinito (24 rondas + 4 del infinito, 59.9 fps)
 
 ## 8. Distribución: web que genera el VPK en el navegador (sin datos de Balatro en nada que publiquemos)
 - [ ] El juego carga todos los recursos desde `ux0:data/Vitalatro/` (o desde dentro del VPK generado), nada embebido
