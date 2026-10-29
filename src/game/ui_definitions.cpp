@@ -945,6 +945,16 @@ TableRef credits() {
         if (fld(tab, "chosen").truthy()) t->set("chosen", true);
         tabs->push(Value(t));
     });
+    // Vitalatro: the port's own credits, after the game's tabs
+    tabs->push(Value(vl::T({{"label", "Vitalatro"}, {"tab_definition_function", Value((Object *)new Func([](const Value &) {
+                                auto row = [](const char *text, double scale, const char *colour) {
+                                    return node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0.05}}),
+                                                A({node(UIT_T, vl::T({{"text", text}, {"scale", scale}, {"colour", col(colour)}}))}));
+                                };
+                                return node(UIT_ROOT, vl::T({{"align", "cm"}, {"padding", 0.2}, {"colour", col("BLACK")}, {"r", 0.1}, {"emboss", 0.05}, {"minh", 6}, {"minw", 10}}),
+                                            A({row("PS Vita port", 0.5, "WHITE"), row("TheBardockGames", 0.8, "GOLD"),
+                                               row("github.com/thebardockgames/vitalatro", 0.35, "BLUE")}));
+                            }))}})));
     return create_UIBox_generic_options(vl::T(
         {{"contents", Value(A({node(UIT_R, vl::T({{"align", "cm"}, {"padding", 0}}),
                                     A({Value(create_tabs(vl::T({{"tabs", Value(tabs)}, {"snap_to_nav", true}})))}))}))}}));

@@ -2,7 +2,7 @@
 
 # Vitalatro
 
-Reimplementación nativa en C++ de Balatro (1.0.1o) para PlayStation Vita, a 60 fps.
+Reimplementación nativa en C++ de Balatro (1.0.1o) para PlayStation Vita, a 60 fps. Port por **TheBardockGames**.
 
 Este repositorio no incluye los recursos del juego: texturas, sonidos, textos, fuentes y datos se generan
 a partir de la copia de cada usuario (el `Balatro.exe` de Steam o el `.apk` de Android). Necesitas tu propia
