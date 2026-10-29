@@ -100,6 +100,8 @@ void Card_Character::add_button(const Value &button, const Value &func, const Va
 void Card_Character::add_speech_bubble(const std::string &text_key, const char *align, const TableRef &loc_vars) {
     if (Node *b = children.get("speech_bubble")) b->remove();
     TableRef sa = vl::T({{"align", align ? align : "bm"}, {"offset", Value(vl::T({{"x", 0}, {"y", 0}}))}, {"parent", Value((Object *)this)}});
+    // Vitalatro: the larger text makes the bubble wider; keep it on screen when Jimbo is near an edge
+    if (G.large_menus()) sa->set("lr_clamp", true);
     config->set("speech_bubble_align", Value(sa));
     UIBox *box = new UIBox(speech_bubble(text_key, loc_vars), sa);
     children.set("speech_bubble", box);
