@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "core/time.h"
+#include "engine/controller.h"
 #include "engine/event.h"
 #include "engine/ui.h"
 #include "game/blind.h"
@@ -348,6 +349,33 @@ void run_command(Request *r) {
         if (!b) return finish(r, false, "no blind");
         b->chips = std::atof(arg(0, "1").c_str());
         finish(r, true, "");
+    } else if (c == "touchstate") {
+        // touchstate: the controller's touch/tap state (why a tap did or did not reach a card)
+        Controller &C = *G.CONTROLLER;
+        auto nm = [](Node *n) {
+            if (!n) return std::string("-");
+            char b[96];
+            std::snprintf(b, sizeof b, "%s@%p%s", typeid(*n).name(), (void *)n, n->REMOVED ? "(REMOVED)" : "");
+            return std::string(b);
+        };
+        std::string locks;
+        for (auto &kv : C.locks)
+            if (kv.second) locks += kv.first + " ";
+        char buf[1024];
+        std::snprintf(buf, sizeof buf,
+                      "HID touch %d mouse %d controller %d pointer %d last %s | down %d locked %d interrupt %d locks [%s]\n"
+                      "cursor_down %s handled %d dist %.3f dur %.3f | cursor_up %s handled %d | hover %s\n"
+                      "finger_focus %s finger_cursor %s | s_tap %s handled %d | l_press %s handled %d | l_pressed %s clear %d\n"
+                      "dragging %s handled %d | hovering %s | collisions %u",
+                      C.HID.touch, C.HID.mouse, C.HID.controller, C.HID.pointer, C.HID.last_type.c_str(), C.is_cursor_down, C.locked,
+                      C.interrupt.focus, locks.c_str(), nm(C.cursor_down.target.get()).c_str(), C.cursor_down.handled,
+                      C.cursor_down.distance, C.cursor_down.duration, nm(C.cursor_up.target.get()).c_str(), C.cursor_up.handled,
+                      nm(C.cursor_hover.target.get()).c_str(), nm(C.finger_focus.get()).c_str(), nm(C.finger_cursor.get()).c_str(),
+                      nm(C.touch_control.s_tap.target.get()).c_str(), C.touch_control.s_tap.handled,
+                      nm(C.touch_control.l_press.target.get()).c_str(), C.touch_control.l_press.handled,
+                      nm(C.touch_control.l_pressed.get()).c_str(), C.touch_control.clear_touch, nm(C.dragging.target.get()).c_str(),
+                      C.dragging.handled, nm(C.hovering.target.get()).c_str(), (unsigned)C.collision_list.size());
+        finish(r, true, buf);
     } else if (c == "counts") {
         // counts: live objects per G.I list and queued events (leak hunting in long runs)
         char buf[512];

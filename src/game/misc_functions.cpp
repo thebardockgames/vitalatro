@@ -501,6 +501,7 @@ Value localize(const TableRef &args) {
             std::string s = assemble(fld(part, "strings"), vars, "ERROR");
             double desc_scale = G.LANG->font->DESCSCALE;
             if (G.F_MOBILE) desc_scale *= type.equals("tutorial") ? 1.5 : 1.45;
+            if (Value vs = args->get(K("vl_scale")); vs.is_num()) desc_scale *= vs.num();  // Vitalatro: Jimbo's larger text
             auto num_or = [](const Value &v, double d) { return v.truthy() ? std::strtod(std::string(v.str()).c_str(), nullptr) : d; };
             Value cV = fld(control, "V"), cC = fld(control, "C"), cs = fld(control, "s");
             auto var_colour = [&](const Value &idx) { return fld(vars, "colours").get(Value(num_or(idx, 0))); };
