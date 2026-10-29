@@ -75,14 +75,14 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       fuentes como LOVE (`bake_fonts.py`), iconos de botones Vita (`vita_pips.py`)
 - [x] Compilar esa biblioteca a WebAssembly (Emscripten) + herramienta de línea de comandos para PC (mismo resultado byte a byte)
 - [x] Armar el VPK en el navegador: zip con nuestro `eboot.bin`, `sce_sys`, shaders compilados y los recursos generados
-- [ ] Shaders: reescribir los que aún son conversión directa del original (fórmulas propias equivalentes, verificadas),
-      y publicar solo nuestros `.gxp` compilados
+- [x] Shaders: se publican nuestros `.gxp` compilados (conversiones y variantes optimizadas) tal como están;
+      decisión del usuario (sin compilador en la Vita no hay otra forma de que baste con instalar el VPK)
 - [x] Página web estática (GitHub Pages): elegir archivo, progreso, descarga; todo local, nada se sube
 - [x] Verificar que el VPK generado por la web es idéntico al que genera el build local y funciona en la Vita
       (idéntico byte a byte al nativo con el APK y con el `Balatro.exe` de Steam; el de Steam instalado en la Vita
       real: menú, personalizar baraja, continuar partida y mano contra jefe a 59.9 fps)
-- [ ] `sce_sys` (icono, fondo y logo del LiveArea) es arte de Balatro: quitarlo del repo y de su historial antes de publicarlo
-      (la web ya genera los suyos a partir de los archivos del usuario)
+- [x] `sce_sys` (icono, fondo y logo del LiveArea): se quedan en el repo y la web los pone en el VPK en lugar de los
+      que dibuja a partir de la copia del usuario (decisión del usuario; sin reescribir el historial)
 - [x] Datos deterministas: `build/assets_*/data` generados con `vl_asset_builder` (dos ejecuciones idénticas byte a
       byte; `jokerbatch` completo pasa). Los empates de orden en los pools (Edition, Tarot_Planet, Consumeables) no
       afectan al azar: Tarot_Planet solo se usa con clave forzada (El Loco) y la colección de ediciones usa una lista fija
@@ -90,8 +90,8 @@ tipos de desbloqueo, centros, sonidos, shaders y los `TODO` del código). Se mar
       menú, ciegas, mano y vista de baraja cargan sin errores
 - [ ] Publicar en GitHub Pages (el sitio de `build/site` ya está armado con el eboot actual)
 - [ ] Revisar que nada publicado (repo, web, eboot) contiene recursos o textos de Balatro
-      (web y eboot: sin imágenes, sonidos ni textos del original; repo: sin textos, pero aún tiene las tres imágenes
-      de `sce_sys`)
+      (web y eboot: sin texturas, sonidos ni textos del original; van a propósito los `.gxp` y las tres imágenes de
+      `sce_sys`; repo: sin textos del original)
 
 ## Fuera de alcance (del original, a propósito)
 Puntuaciones online, Discord/Twitter/Steam/linktree, encuestas y CTA de la demo, retos diarios

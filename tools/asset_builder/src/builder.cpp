@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <set>
 #include <stdexcept>
 
 #include <zlib.h>
@@ -101,9 +102,12 @@ bool stored_type(const std::string &p) {
 }  // namespace
 
 std::vector<uint8_t> make_vpk(const std::vector<OutFile> &base, const std::vector<OutFile> &assets) {
+    // a base file replaces the generated one with the same path (the LiveArea images)
     std::vector<const OutFile *> files;
-    for (const auto &f : base) files.push_back(&f);
-    for (const auto &f : assets) files.push_back(&f);
+    std::set<std::string> in_base;
+    for (const auto &f : base) files.push_back(&f), in_base.insert(f.path);
+    for (const auto &f : assets)
+        if (!in_base.count(f.path)) files.push_back(&f);
     std::vector<uint8_t> zip, cd;
     const uint16_t dos_time = 0, dos_date = uint16_t(((2024 - 1980) << 9) | (1 << 5) | 1);  // fixed: reproducible
     for (const OutFile *f : files) {

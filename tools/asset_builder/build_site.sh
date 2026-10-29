@@ -7,8 +7,10 @@
 #     eboot.bin, sce_sys/param.sfo   <- $VITA_BUILD (default: the main checkout's build/vita)
 #     shaders/*.gxp                  <- $VITA_ASSETS/shaders (default: build/assets_vita)
 #     sce_sys/livearea/contents/template.xml <- this repo
-#   listed in base/manifest.json. No Balatro file goes into the site: the textures, sounds,
-#   data, fonts and sce_sys images are built in the browser from the user's copy.
+#     sce_sys/icon0.png, livearea/contents/{bg,startup}.png <- this repo (they replace the
+#       ones the builder draws from the user's textures)
+#   listed in base/manifest.json. The textures, sounds, data and fonts are built in the browser
+#   from the user's copy.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -32,6 +34,8 @@ cp "$ROOT/build/ab_wasm/vl_asset_builder.js" "$ROOT/build/ab_wasm/vl_asset_build
 cp "$VITA_BUILD/eboot.bin" "$OUT/base/eboot.bin"
 cp "$VITA_BUILD/vitalatro.vpk_param.sfo" "$OUT/base/sce_sys/param.sfo"
 cp "$ROOT/sce_sys/livearea/contents/template.xml" "$OUT/base/sce_sys/livearea/contents/template.xml"
+cp "$ROOT/sce_sys/icon0.png" "$OUT/base/sce_sys/icon0.png"
+cp "$ROOT/sce_sys/livearea/contents/bg.png" "$ROOT/sce_sys/livearea/contents/startup.png" "$OUT/base/sce_sys/livearea/contents/"
 cp "$VITA_ASSETS"/shaders/*.gxp "$OUT/base/shaders/"
 
 python3 - "$OUT/base" <<'EOF'
