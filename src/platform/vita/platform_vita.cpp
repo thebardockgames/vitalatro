@@ -128,6 +128,9 @@ int log_thread(SceSize, void *) {
 }
 
 void log_start() {
+    // One log per launch (the previous one is kept): appending forever grew it by megabytes.
+    sceIoRemove("ux0:data/Vitalatro/log_prev.txt");
+    sceIoRename("ux0:data/Vitalatro/log.txt", "ux0:data/Vitalatro/log_prev.txt");
     sceKernelCreateLwMutex(&log_mutex, "vl_log", 0, 0, nullptr);
     log_sema = sceKernelCreateSema("vl_log", 0, 0, 1 << 20, nullptr);
     SceUID t = sceKernelCreateThread("vl_log", log_thread, 0x10000100 + 30, 16 * 1024, 0, 0x20000 | 0x40000, nullptr);
