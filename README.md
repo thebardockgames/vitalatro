@@ -2,31 +2,30 @@
 
 # Vitalatro
 
-Reimplementación nativa en C++ de Balatro (1.0.1o) para PlayStation Vita, a 60 fps. Port por **TheBardockGames**.
+A native C++ reimplementation of Balatro (1.0.1o) for the PlayStation Vita, running at 60 fps. Port by **TheBardockGames**.
 
-Este repositorio no incluye los recursos del juego: texturas, sonidos, textos, fuentes y datos se generan
-a partir de la copia de cada usuario (el `Balatro.exe` de Steam o el `.apk` de Android). Necesitas tu propia
-copia legal del juego.
+This repository does not include any of the game's assets: textures, sounds, text, fonts and data are generated
+from each user's own copy (the Steam `Balatro.exe` or the Android `.apk`). You need your own legal copy of the game.
 
-Proyecto de fans sin relación con LocalThunk ni Playstack. Balatro es de sus respectivos dueños.
+Fan project, not affiliated with LocalThunk or Playstack. Balatro belongs to its respective owners.
 
-## Para jugar
+## How to play
 
-1. Abre la página del generador (https://thebardockgames.github.io/vitalatro-web/) y elige tu `Balatro.exe` o `.apk`.
-   Todo se procesa en tu navegador; no se sube nada.
-2. Descarga el `.vpk` que genera e instálalo en la Vita con VitaShell.
+1. Open the generator page (https://thebardockgames.github.io/vitalatro-web/) and pick your `Balatro.exe` or `.apk`.
+   Everything is processed in your browser; nothing is uploaded.
+2. Download the `.vpk` it generates and install it on your Vita with VitaShell.
 
-## Compilar
+## Building
 
-Todo se compila en WSL:
+Everything is built in WSL:
 
-- Vita: VitaSDK en `/usr/local/vitasdk`, `./build.sh vita` (eboot y VPK en `build/vita`).
-- PC (pruebas y comparación con el original): `./build.sh pc`.
-- Recursos para el build local: `python tools/build_assets.py "<carpeta del juego>" build/assets_vita vita`
-  (los shaders de la Vita necesitan el compilador de shaders del SDK de Sony).
-- Generador de VPK (WebAssembly, Emscripten en `~/emsdk`): `tools/asset_builder/build_site.sh` arma la página en
-  `build/site`; `tools/asset_builder/publish_site.sh` (Git Bash) la sube a la rama `gh-pages` del repositorio
-  `vitalatro-web` (solo la página).
-- Build de desarrollo (VLTR00002, servidor de control en el puerto 7777): `-DVL_DEV=ON` y `tools/vitactl.py`.
+- Vita: VitaSDK in `/usr/local/vitasdk`, `./build.sh vita` (eboot and VPK in `build/vita`).
+- PC (testing and comparison with the original): `./build.sh pc`.
+- Assets for the local build: `python tools/build_assets.py "<game folder>" build/assets_vita vita`
+  (the Vita shaders need the shader compiler from Sony's SDK).
+- VPK generator (WebAssembly, Emscripten in `~/emsdk`): `tools/asset_builder/build_site.sh` builds the page in
+  `build/site`; `tools/asset_builder/publish_site.sh` (Git Bash) pushes it to the `gh-pages` branch of the
+  `vitalatro-web` repository (the page only).
+- Dev build (VLTR00002, control server on port 7777): `-DVL_DEV=ON` and `tools/vitactl.py`.
 
-El estado del trabajo está en [PENDIENTES.md](PENDIENTES.md).
+Work status is tracked in [PENDIENTES.md](PENDIENTES.md) (in Spanish).
